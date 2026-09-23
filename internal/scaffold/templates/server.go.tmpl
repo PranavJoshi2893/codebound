@@ -1,0 +1,59 @@
+package server
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+	
+    "{{ .ModPath }}/internal/config"
+)
+
+type Server struct {
+	httpServer *http.Server
+}
+
+func NewServer(cfg *config.Config, handler http.Handler) *Server {
+	return &Server{
+		httpServer: &http.Server{
+			Addr:              ":" + cfg.Port,
+			Handler:           handler,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       10 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		},
+	}
+}
+
+func (s *Server) Run(ctx context.Context) error {
+	errChan := make(chan error, 1)
+
+	go func() {
+        slog.Info("http server is running at", "port", s.httpServer.Addr)
+		err := s.httpServer.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errChan <- err
+		}
+	}()
+
+	select {
+	case err := <-errChan:
+		return fmt.Errorf("failed to start server: %w", err)
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+		defer cancel()
+
+		slog.Info("Shutting down...")
+		err := s.httpServer.Shutdown(shutdownCtx)
+		if err != nil {
+			return fmt.Errorf("forced shutdown: %w", err)
+		}
+		slog.Info("Shutdown")
+
+		return nil
+	}
+
+}

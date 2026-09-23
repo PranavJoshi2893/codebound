@@ -1,0 +1,14 @@
+include .env
+export
+
+BINARY_NAME = app
+
+build:
+	@go build -o bin/$(BINARY_NAME) cmd/api/main.go
+
+run: build
+	@./bin/$(BINARY_NAME)
+
+clean:
+	@rm -rf bin/
+	@go clean

@@ -1,0 +1,36 @@
+package database
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"log/slog"
+	"{{ .ModPath }}/internal/config"
+	"time"
+
+	_ "github.com/lib/pq"
+)
+
+func NewDatabase(cfg *config.Config) (*sql.DB, error) {
+	db, err := sql.Open(cfg.DBDriver, cfg.DBString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database connection with driver '%s': %w", cfg.DBDriver, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		func() {
+			err := db.Close()
+			if err != nil {
+				slog.Error("failed to close database connection after ping failure", "error", err)
+			}
+		}()
+
+		return nil, fmt.Errorf("failed to verify database connection (ping failed): %w", err)
+	}
+
+	return db, nil
+
+}

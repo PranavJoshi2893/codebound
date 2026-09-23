@@ -1,0 +1,55 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+
+    "{{ .ModPath }}/internal/config"
+    "{{ .ModPath }}/internal/database"
+    "{{ .ModPath }}/internal/server"
+    "{{ .ModPath }}/internal/router"
+)
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	err := run(ctx)
+	if err != nil {
+		slog.Error("failed to start server", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context) error {
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	db, err := database.NewDatabase(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Error("failed to close database connection", "error", err)
+		}
+	}()
+
+	routes := router.Routes()
+
+    srv := server.NewServer(cfg, routes)
+
+	if err := srv.Run(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}

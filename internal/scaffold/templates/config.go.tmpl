@@ -1,0 +1,28 @@
+package config
+
+import (
+	"fmt"
+	"os"
+)
+
+type Config struct {
+	Port     string
+	DBString string
+	DBDriver string
+}
+
+func LoadConfig() (*Config, error) {
+	port := os.Getenv("PORT")
+	dbString := os.Getenv("DBSTRING")
+	dbDriver := os.Getenv("DBDRIVER")
+
+	if port == "" || dbString == "" || dbDriver == "" {
+		return nil, fmt.Errorf("failed to load environment variable/'s")
+	}
+
+	return &Config{
+		Port:     port,
+		DBString: dbString,
+		DBDriver: dbDriver,
+	}, nil
+}
