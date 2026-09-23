@@ -18,7 +18,7 @@ consistent project structures and architectural boundaries.
 It helps you establish boundaries between components,
 enforce architectural rules, and keep your codebase aligned
 with the structure you define.`,
-	Version: "0.1.0-alpha",
+	Version: "0.1.3-alpha",
 }
 
 func Execute() {

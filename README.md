@@ -1,4 +1,4 @@
-# CodeBound `v0.1.0-alpha`
+# CodeBound `v0.1.3-alpha`
 
  **CodeBound is an opinionated Go CLI for scaffolding consistent project structures and building toward enforceable architectural boundaries.**
 
@@ -10,7 +10,7 @@
 codebound init example-api
 ```
 
- > **Alpha Notice:** CodeBound is currently in **v0.1.0-alpha**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
+ > **Alpha Notice:** CodeBound is currently in **v0.1.3-alpha**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
 
 ---
 
@@ -127,7 +127,7 @@ example-api/
 
  ## Current Status
 
- CodeBound is currently **`v0.1.0-alpha`**.
+ CodeBound is currently **`v0.1.3-alpha`**.
 
  ### Available
 
