@@ -105,10 +105,6 @@ func createFiles(rootDir string, modPath string) error {
 
 		destPath := filepath.Join(rootDir, dest)
 
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return fmt.Errorf("failed to create directory for %s: %w", dest, err)
-		}
-
 		destFile, err := os.Create(destPath)
 		if err != nil {
 			return fmt.Errorf("failed to create file %s: %w", dest, err)
