@@ -5,7 +5,7 @@ All notable changes to CodeBound will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and this project adheres to [Semantic Versioning](https://semver.org).
 
-## [v0.1.3-nightly.1] - 2026-09-25
+## [v0.1.4-nightly.1] - 2026-09-25
 
 ### Changed
 - Command changed from `init` to `create`.
