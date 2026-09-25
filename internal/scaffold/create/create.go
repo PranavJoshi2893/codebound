@@ -61,6 +61,7 @@ func createFolders(rootDir string) error {
 		filepath.Join(rootDir, "internal", "database"),
 		filepath.Join(rootDir, "internal", "server"),
 		filepath.Join(rootDir, "internal", "router"),
+		filepath.Join(rootDir, "internal", "response"),
 		filepath.Join(rootDir, "migrations"),
 	}
 
@@ -91,6 +92,7 @@ func createFiles(rootDir string, modPath string) error {
 		"templates/database.go.tmpl": "internal/database/database.go",
 		"templates/server.go.tmpl":   "internal/server/server.go",
 		"templates/router.go.tmpl":   "internal/router/router.go",
+		"templates/response.go.tmpl": "internal/response/response.go",
 	}
 
 	data := TemplateData{
