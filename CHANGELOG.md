@@ -5,6 +5,14 @@ All notable changes to CodeBound will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and this project adheres to [Semantic Versioning](https://semver.org).
 
+## [v0.1.4-nightly.2] - 2026-09-25
+
+### Added
+- Standard response templates for router, handler, and service layers.
+
+### Changed
+- Updated `create.go` to integrate new templates and standard response generation.
+
 ## [v0.1.4-nightly.1] - 2026-09-25
 
 ### Changed
