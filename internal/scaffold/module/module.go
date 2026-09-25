@@ -1,6 +1,7 @@
-package scaffold
+package module
 
 import (
+	"embed"
 	"errors"
 	"fmt"
 	"os"
@@ -50,7 +51,10 @@ func findProjectRoot() (string, error) {
 	}
 }
 
-type ModuleTemplateData struct {
+//go:embed templates/*
+var templateFiles embed.FS
+
+type TemplateData struct {
 	Name string
 }
 
@@ -60,7 +64,7 @@ func createModuleFiles(rootDir string, moduleName string) error {
 		"templates/service.go.tmpl": filepath.Join("internal", moduleName, "service.go"),
 	}
 
-	data := ModuleTemplateData{
+	data := TemplateData{
 		Name: moduleName,
 	}
 

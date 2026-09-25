@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"unicode"
 
-	"github.com/PranavJoshi2893/codebound/internal/scaffold"
+	"github.com/PranavJoshi2893/codebound/internal/scaffold/module"
 	"github.com/spf13/cobra"
 )
 
@@ -44,7 +44,7 @@ var moduleCmd = &cobra.Command{
 			return err
 		}
 
-		scaffold.CreateAPIModule(modOpts.Name)
+		module.CreateAPIModule(modOpts.Name)
 		return nil
 	},
 }
