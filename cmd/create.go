@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"unicode"
 
-	"github.com/PranavJoshi2893/codebound/internal/scaffold"
+	"github.com/PranavJoshi2893/codebound/internal/scaffold/create"
 	"github.com/spf13/cobra"
 )
 
@@ -38,8 +38,8 @@ func (o *CreateOptions) Validate() error {
 	return nil
 }
 
-var initCmd = &cobra.Command{
-	Use:   "init [project-name]",
+var createCmd = &cobra.Command{
+	Use:   "create [project-name]",
 	Short: "Initialize a new project using CodeBound structure",
 	Long: `
 Initialize a new project layout adhering to the opinionated 
@@ -65,7 +65,7 @@ architecture and boundary rules defined by CodeBound.
 
 		slog.Info("Initializing project structure", "project", opts.RootDir)
 
-		if err := scaffold.InitializeProject(opts.RootDir, opts.Mod); err != nil {
+		if err := create.InitializeProject(opts.RootDir, opts.Mod); err != nil {
 			slog.Error("failed to initialized", "project", opts.RootDir, "error", err)
 			return err
 		}
@@ -76,7 +76,6 @@ architecture and boundary rules defined by CodeBound.
 }
 
 func init() {
-	rootCmd.AddCommand(initCmd)
-
-	initCmd.Flags().StringP("mod", "m", "", "Go mod path (e.g., github.com/example/module_name)")
+	rootCmd.AddCommand(createCmd)
+	createCmd.Flags().StringP("mod", "m", "", "Go mod path (e.g., github.com/example/module_name)")
 }

@@ -1,4 +1,4 @@
-# CodeBound `v0.1.3-alpha`
+# CodeBound `v0.1.4-nightly.2`
 
  **CodeBound is an opinionated Go CLI for scaffolding consistent project structures and building toward enforceable architectural boundaries.**
 
@@ -7,10 +7,10 @@
  CodeBound gives you a consistent starting point from a single command:
 
 ```
-codebound init example-api
+codebound create example-api
 ```
 
- > **Alpha Notice:** CodeBound is currently in **v0.1.3-alpha**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
+ > **Alpha Notice:** CodeBound is currently in **v0.1.4-nightly.2**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
 
 ---
 
@@ -36,7 +36,7 @@ Makefile
  you can start with:
 
 ```
-codebound init example-api
+codebound create example-api
 ```
 
 ---
@@ -64,7 +64,7 @@ codebound --help
  Initialize a new Go project with CodeBound's default structure:
 
 ```
-codebound init example-api
+codebound create example-api
 ```
 
  ### Create a project with a custom module path
@@ -72,11 +72,11 @@ codebound init example-api
  You can also specify the Go module path:
 
 ```
-codebound init example-api -m github.com/repository/example-api
+codebound create example-api -m github.com/repository/example-api
 ```
 or
 ```
-codebound init example-api --mod github.com/repository/example-api
+codebound create example-api --mod github.com/repository/example-api
 ```
 
 ---
@@ -90,7 +90,7 @@ uses owner-only permissions (`0600`) on Unix systems.
  Running:
 
 ```
-codebound init example-api
+codebound create example-api
 ```
 
  generates an opinionated project structure:
@@ -131,7 +131,7 @@ example-api/
 
  ## Current Status
 
- CodeBound is currently **`v0.1.3-alpha`**.
+ CodeBound is currently **`v0.1.4-nightly.2`**.
 
  ### Available
 

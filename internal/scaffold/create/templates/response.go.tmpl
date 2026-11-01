@@ -1,0 +1,49 @@
+package response
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+)
+
+// Technical Note: This package implements generic HTTP JSON response helpers using Go type parameters ([T any]). 
+// It ensures compile-time type safety with zero runtime reflection overhead, 
+// standardizing both success and error payloads while utilizing log/slog for serialization error tracking.
+
+type ResposeSuccess[T any] struct {
+	Message string `json:"message"`
+	Data    T      `json:"data,omitempty"`
+}
+
+type ResposeError[T any] struct {
+	Message string `json:"message"`
+	Errors  T      `json:"errors,omitempty"`
+}
+
+func JSONWriteSuccess[T any](w http.ResponseWriter, statusCode int, message string, data T) {
+	resp := ResposeSuccess[T]{
+		Message: message,
+		Data:    data,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	err := json.NewEncoder(w).Encode(resp)
+	if err != nil {
+		slog.Error("failed to send response data", "error", err)
+	}
+}
+
+func JSONWriteError[T any](w http.ResponseWriter, statusCode int, message string, errors T) {
+	resp := ResposeError[T]{
+		Message: message,
+		Errors:  errors,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	err := json.NewEncoder(w).Encode(resp)
+	if err != nil {
+		slog.Error("failed to send response data", "error", err)
+	}
+}
