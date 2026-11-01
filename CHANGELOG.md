@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 ### Changed
 - Command changed from `init` to `create`.
 
+## [Unreleased]
+
+### Security
+
+- Generate `.env` with owner-only permissions on Unix systems.
+- Refuse to overwrite existing generated files, including symbolic links.
+- Bind generated HTTP servers to localhost by default; public deployments require an HTTPS reverse proxy.
+- Add regression tests for secret-file permissions and overwrite protection.
+
 ## [v0.1.3-alpha] - 2026-09-23
 
 ### Changed
