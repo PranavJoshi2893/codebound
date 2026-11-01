@@ -109,7 +109,12 @@ func createFiles(rootDir string, modPath string) error {
 			return fmt.Errorf("failed to create directory for %s: %w", dest, err)
 		}
 
-		destFile, err := os.Create(destPath)
+		perm := os.FileMode(0644)
+		if dest == ".env" {
+			perm = 0600
+		}
+
+		destFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 		if err != nil {
 			return fmt.Errorf("failed to create file %s: %w", dest, err)
 		}

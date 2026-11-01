@@ -83,6 +83,10 @@ codebound init example-api --mod github.com/repository/example-api
 
  ## Generated Project Structure
 
+Generated servers listen on `127.0.0.1` by default. For public deployments,
+place the server behind an HTTPS reverse proxy. The generated `.env` file
+uses owner-only permissions (`0600`) on Unix systems.
+
  Running:
 
 ```
