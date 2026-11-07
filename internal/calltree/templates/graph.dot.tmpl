@@ -1,6 +1,0 @@
-digraph CallTree {
-  rankdir=TB;
-  node [shape=box];
-{{range .Nodes}}  {{.ID}} [label={{quote .Label}}];
-{{end}}{{range .Edges}}  {{.From}} -> {{.To}}{{if .Label}} [label={{quote .Label}}]{{end}};
-{{end}}}

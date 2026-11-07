@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 
+	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/callgraph/cha"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
@@ -23,6 +25,7 @@ type Analysis struct {
 	program   *ssa.Program
 	project   map[string]bool
 	functions map[*ssa.Function]bool
+	callGraph func() *callgraph.Graph
 }
 
 func New(dir string) *Analyzer {
@@ -63,6 +66,7 @@ func (a *Analyzer) Load(ctx context.Context) (*Analysis, error) {
 		program:   program,
 		project:   projectPackages(loaded),
 		functions: ssautil.AllFunctions(program),
+		callGraph: sync.OnceValue(func() *callgraph.Graph { return cha.CallGraph(program) }),
 	}, nil
 }
 
@@ -83,8 +87,7 @@ func (a *Analysis) Analyze(ctx context.Context, rootName string) (*Graph, error)
 	if err != nil {
 		return nil, err
 	}
-	graph := cha.CallGraph(a.program)
-	return collectCalls(ctx, a.program, graph, a.project, root, a.dir)
+	return collectCalls(ctx, a.program, a.callGraph(), a.project, root, a.dir)
 }
 
 func loadPackages(ctx context.Context, dir, pattern string) ([]*packages.Package, error) {

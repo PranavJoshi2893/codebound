@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -71,6 +74,98 @@ func Do() { repository.Get() }
 	if !bytes.Equal(firstJSON, secondJSON) {
 		t.Fatal("analysis output is not deterministic")
 	}
+}
+
+func TestAnalysisReusesCallGraph(t *testing.T) {
+	dir := fixture(t, map[string]string{"main.go": "package main\nfunc main() { task() }\nfunc task() {}\n"})
+	analysis, err := New(dir).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := analysis.callGraph()
+	for _, root := range []string{"main", "task"} {
+		if _, err := analysis.Analyze(context.Background(), root); err != nil {
+			t.Fatal(err)
+		}
+		if analysis.callGraph() != first {
+			t.Fatal("analysis rebuilt its call graph")
+		}
+	}
+}
+
+func TestConcurrentQueriesShareLoadedAnalysis(t *testing.T) {
+	dir := fixture(t, map[string]string{"main.go": "package main\nfunc main() { task() }\nfunc task() {}\n"})
+	analysis, err := New(dir).Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const queries = 8
+	results := make(chan error, queries)
+	var workers sync.WaitGroup
+	for i := 0; i < queries; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			graph, err := analysis.Analyze(context.Background(), "main")
+			if err == nil && len(graph.Calls) != 1 {
+				err = fmt.Errorf("unexpected call count: %d", len(graph.Calls))
+			}
+			results <- err
+		}()
+	}
+	workers.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestTraversalPreservesDepthFirstOrder(t *testing.T) {
+	dir := fixture(t, map[string]string{"main.go": `package main
+func main() { first(); second() }
+func first() { shared() }
+func second() { shared() }
+func shared() { main() }
+`})
+	graph, err := New(dir).Analyze(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, call := range graph.Calls {
+		got = append(got, call.Caller.Name+" -> "+call.Callee.Name)
+	}
+	want := []string{"main -> first", "first -> shared", "shared -> main", "main -> second", "second -> shared"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("call ordering changed: got %v, want %v", got, want)
+	}
+}
+
+func TestDeepCallChain(t *testing.T) {
+	const depth = 5000
+	dir := fixture(t, map[string]string{"main.go": callChainSource(depth)})
+	graph, err := New(dir).Analyze(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graph.Calls) != depth {
+		t.Fatalf("incomplete deep graph: got %d calls, want %d", len(graph.Calls), depth)
+	}
+}
+
+func callChainSource(depth int) string {
+	var source strings.Builder
+	source.WriteString("package main\nfunc main() { task0() }\n")
+	for i := 0; i < depth; i++ {
+		fmt.Fprintf(&source, "func task%d() {", i)
+		if i+1 < depth {
+			fmt.Fprintf(&source, "task%d()", i+1)
+		}
+		source.WriteString("}\n")
+	}
+	return source.String()
 }
 
 func TestRootResolution(t *testing.T) {

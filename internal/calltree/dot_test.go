@@ -3,6 +3,7 @@ package calltree
 import (
 	"bytes"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -22,6 +23,17 @@ func TestWriteDOT(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "\x1b[") || strings.Contains(output.String(), "color=") {
 		t.Fatal("DOT output contains terminal colors")
+	}
+}
+
+func TestDOTQuotesUntrustedLabels(t *testing.T) {
+	root := Function{Name: "quoted\"name", Package: "app", File: "path\\with\ncontrols.go", Line: 1}
+	var output bytes.Buffer
+	if err := WriteDOT(&output, &Graph{Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "label="+strconv.Quote(functionLabel(root))) {
+		t.Fatalf("label was not safely quoted: %s", output.String())
 	}
 }
 

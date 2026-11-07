@@ -1,4 +1,4 @@
-# CodeBound `v0.1.4-nightly.2`
+# CodeBound `v0.1.4-nightly.3`
 
  **CodeBound is an opinionated Go CLI for scaffolding consistent project structures and building toward enforceable architectural boundaries.**
 
@@ -10,7 +10,7 @@
 codebound create example-api
 ```
 
- > **Alpha Notice:** CodeBound is currently in **v0.1.4-nightly.2**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
+ > **Prerelease Notice:** CodeBound is currently in **v0.1.4-nightly.3**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
 
 ---
 
@@ -46,14 +46,18 @@ codebound create example-api
  Make sure you have [Go](<https://go.dev/>) installed, then install CodeBound:
 
 ```
-go install github.com/PranavJoshi2893/codebound@latest
+go install github.com/PranavJoshi2893/codebound@v0.1.4-nightly.3
 ```
 
  Verify the installation:
 
 ```
-codebound --help
+codebound --version
 ```
+
+This is a prerelease, so use the explicit version above rather than `@latest`,
+which may resolve to a different release. The browser call-tree viewer also
+requires Graphviz's `dot` executable in `PATH`.
 
 ---
 
@@ -165,6 +169,34 @@ Naming-based architecture checks annotate calls in every output format:
   configurable architecture policy or an enforcement gate; findings do not
   change the command's exit status.
 
+### Large projects and performance
+
+Call-tree analysis loads and builds SSA once per analysis session, then lazily
+builds and reuses its CHA graph across root queries. Reachable calls are traversed
+iteratively with cached function descriptions, preserving depth-first ordering
+without a recursive walk. DOT exports stream to the writer without constructing
+a duplicate collection of nodes and edges.
+
+This is a local development tool, not an unbounded analysis service. Loading,
+type-checking, SSA construction, and CHA can still require substantial memory
+and time. The result graph remains in memory. For large repositories, narrow the
+scope with `--pattern` and use DOT/JSON instead of the browser view if renderer
+limits are exceeded:
+
+```sh
+codebound calltree . --pattern ./cmd/api --format json > calltree.json
+```
+
+Run the synthetic 10,000-edge DOT and loaded 1,000-function-chain benchmarks:
+
+```sh
+go test ./internal/calltree -run '^$' -bench . -benchmem
+```
+
+The loaded-analysis benchmark excludes source loading and SSA construction; it
+does not measure first-run CLI latency. Benchmark allocation totals are not peak
+process memory, and timings depend on hardware and project structure.
+
 ---
 
  ## Generated Project Structure
@@ -221,7 +253,7 @@ example-api/
 
  ## Current Status
 
- CodeBound is currently **`v0.1.4-nightly.2`**.
+ CodeBound is currently **`v0.1.4-nightly.3`**.
 
  ### Available
 

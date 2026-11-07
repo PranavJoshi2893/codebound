@@ -1,65 +1,69 @@
 package calltree
 
 import (
-	_ "embed"
+	"bufio"
 	"fmt"
 	"io"
-	"strconv"
-	"text/template"
 )
 
-//go:embed templates/graph.dot.tmpl
-var dotTemplateText string
-
-var dotTemplate = template.Must(template.New("dot").Funcs(template.FuncMap{
-	"quote": strconv.Quote,
-}).Parse(dotTemplateText))
-
-type dotGraph struct {
-	Nodes []dotNode
-	Edges []dotEdge
+type functionID struct {
+	name, pkg, file string
+	line            int
 }
 
-type dotNode struct {
-	ID    string
-	Label string
+func (f Function) id() functionID {
+	return functionID{f.Name, f.Package, f.File, f.Line}
 }
 
-type dotEdge struct {
-	From  string
-	To    string
-	Label string
-}
-
-// WriteDOT writes plain Graphviz DOT without invoking external tools.
+// WriteDOT streams plain DOT with only a node-ID index, not a second graph of
+// copied nodes and edges. Ordering and quoting match the original exporter.
 func WriteDOT(writer io.Writer, graph *Graph) error {
-	view := dotGraph{}
-	type functionID struct {
-		name, pkg, file string
-		line            int
+	output := bufio.NewWriter(writer)
+	if _, err := output.WriteString("digraph CallTree {\n  rankdir=TB;\n  node [shape=box];\n"); err != nil {
+		return err
 	}
-	ids := make(map[functionID]string)
-	addNode := func(function Function) string {
-		key := functionID{function.Name, function.Package, function.File, function.Line}
-		if id := ids[key]; id != "" {
-			return id
+	ids := make(map[functionID]int)
+	addNode := func(function Function) error {
+		key := function.id()
+		if _, exists := ids[key]; exists {
+			return nil
 		}
-		id := fmt.Sprintf("n%d", len(ids))
+		id := len(ids)
 		ids[key] = id
-		view.Nodes = append(view.Nodes, dotNode{ID: id, Label: functionLabel(function)})
-		return id
+		_, err := fmt.Fprintf(output, "  n%d [label=%q];\n", id, functionLabel(function))
+		return err
 	}
-	addNode(graph.Root)
+	if err := addNode(graph.Root); err != nil {
+		return err
+	}
+	for _, call := range graph.Calls {
+		if err := addNode(call.Caller); err != nil {
+			return err
+		}
+		if err := addNode(call.Callee); err != nil {
+			return err
+		}
+	}
 	for _, call := range graph.Calls {
 		label := call.Violation
 		if label == "" && call.ThroughInterface {
 			label = "interface"
 		}
-		view.Edges = append(view.Edges, dotEdge{
-			From: addNode(call.Caller), To: addNode(call.Callee), Label: label,
-		})
+		from, to := ids[call.Caller.id()], ids[call.Callee.id()]
+		var err error
+		if label == "" {
+			_, err = fmt.Fprintf(output, "  n%d -> n%d;\n", from, to)
+		} else {
+			_, err = fmt.Fprintf(output, "  n%d -> n%d [label=%q];\n", from, to, label)
+		}
+		if err != nil {
+			return err
+		}
 	}
-	return dotTemplate.Execute(writer, view)
+	if _, err := output.WriteString("}\n"); err != nil {
+		return err
+	}
+	return output.Flush()
 }
 
 func functionLabel(function Function) string {

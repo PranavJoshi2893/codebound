@@ -11,40 +11,50 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
+type traversalFrame struct {
+	function *ssa.Function
+	edges    []*callgraph.Edge
+	next     int
+}
+
 func collectCalls(ctx context.Context, program *ssa.Program, graph *callgraph.Graph, project map[string]bool, root *ssa.Function, dir string) (*Graph, error) {
 	result := &Graph{Root: describeFunction(program, root, dir), Calls: []Call{}}
-	visited := make(map[*ssa.Function]bool)
-	var visit func(*ssa.Function) error
-	visit = func(function *ssa.Function) error {
+	// A cached description also marks a function as discovered. Each function
+	// is converted and expanded once, even when many callers share it.
+	descriptions := map[*ssa.Function]Function{root: result.Root}
+	stack := []traversalFrame{{function: root, edges: sortedEdges(graph.Nodes[root])}}
+	for len(stack) > 0 {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
-		if visited[function] {
-			return nil
+		frame := &stack[len(stack)-1]
+		if frame.next == len(frame.edges) {
+			stack[len(stack)-1] = traversalFrame{}
+			stack = stack[:len(stack)-1]
+			continue
 		}
-		visited[function] = true
-		caller := describeFunction(program, function, dir)
-		for _, edge := range sortedEdges(graph.Nodes[function]) {
-			called := edge.Callee.Func
-			if _, ok := projectDeclaration(called, project); !ok {
-				continue
-			}
-			callee := describeFunction(program, called, dir)
-			throughInterface := edge.Site != nil && edge.Site.Common().IsInvoke()
-			result.Calls = append(result.Calls, Call{
-				Caller:           caller,
-				Callee:           callee,
-				ThroughInterface: throughInterface,
-				Violation:        boundaryViolation(caller, callee, throughInterface),
-			})
-			if err := visit(called); err != nil {
-				return err
-			}
+		edge := frame.edges[frame.next]
+		frame.next++
+		called := edge.Callee.Func
+		if _, ok := projectDeclaration(called, project); !ok {
+			continue
 		}
-		return nil
-	}
-	if err := visit(root); err != nil {
-		return nil, err
+		callee, discovered := descriptions[called]
+		if !discovered {
+			callee = describeFunction(program, called, dir)
+			descriptions[called] = callee
+		}
+		throughInterface := edge.Site != nil && edge.Site.Common().IsInvoke()
+		caller := descriptions[frame.function]
+		result.Calls = append(result.Calls, Call{
+			Caller:           caller,
+			Callee:           callee,
+			ThroughInterface: throughInterface,
+			Violation:        boundaryViolation(caller, callee, throughInterface),
+		})
+		if !discovered {
+			stack = append(stack, traversalFrame{function: called, edges: sortedEdges(graph.Nodes[called])})
+		}
 	}
 	return result, nil
 }

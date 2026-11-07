@@ -5,6 +5,30 @@ All notable changes to CodeBound will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and this project adheres to [Semantic Versioning](https://semver.org).
 
+## [v0.1.4-nightly.3] - 2026-11-07
+
+### Added
+- Interactive Charm menu for project creation and call-tree viewing.
+- Call-tree analysis with architecture annotations, a local browser viewer, and DOT/JSON exports.
+- Automatic executable entry-point discovery, an interactive root selector, positional project paths, and automatic viewer port selection.
+- Regression tests and synthetic benchmarks for large graph exports and repeated analysis.
+
+### Changed
+- Share project validation and scaffolding between Cobra commands and the TUI.
+- Cache the CHA graph per loaded analysis session and use iterative traversal with cached function descriptions.
+- Stream DOT output without a duplicate graph representation or embedded DOT template.
+- Document performance limits and pin installation instructions to this prerelease.
+
+### Security
+- Generate `.env` with owner-only permissions on Unix systems.
+- Confine generated writes with `os.Root`, refuse overwrites, and require fresh API-module directories.
+- Validate module identifiers and prevent module-path argument injection.
+- Return module-generation failures to the CLI instead of ignoring them.
+- Protect the local viewer against DNS rebinding and cross-site access; add security headers and HTTP timeouts.
+- Bound Graphviz rendering time, input, output, and diagnostic sizes.
+- Bind generated HTTP servers to localhost with request timeouts; public deployments require an HTTPS reverse proxy.
+- Remove wildcard CORS from newly generated routers.
+
 ## [v0.1.4-nightly.2] - 2026-09-25
 
 ### Added
@@ -17,15 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ### Changed
 - Command changed from `init` to `create`.
-
-## [Unreleased]
-
-### Security
-
-- Generate `.env` with owner-only permissions on Unix systems.
-- Refuse to overwrite existing generated files, including symbolic links.
-- Bind generated HTTP servers to localhost by default; public deployments require an HTTPS reverse proxy.
-- Add regression tests for secret-file permissions and overwrite protection.
 
 ## [v0.1.3-alpha] - 2026-09-23
 
