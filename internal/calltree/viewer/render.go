@@ -22,6 +22,14 @@ const (
 
 var errOutputLimit = errors.New("graph rendering output exceeds size limit")
 
+// CheckGraphviz checks the optional browser-view dependency before analysis.
+func CheckGraphviz() error {
+	if _, err := exec.LookPath("dot"); err != nil {
+		return errors.New("Graphviz (dot) is required for browser view; install Graphviz or use --format dot/json")
+	}
+	return nil
+}
+
 type limitedBuffer struct {
 	buffer bytes.Buffer
 	limit  int

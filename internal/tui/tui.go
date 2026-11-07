@@ -1,4 +1,4 @@
-// Package tui collects project options. It never creates files or runs commands.
+// Package tui collects user choices. It never creates files or runs commands.
 package tui
 
 import (
@@ -13,7 +13,7 @@ import (
 	"github.com/PranavJoshi2893/codebound/internal/project"
 )
 
-var ErrCancelled = errors.New("project setup cancelled")
+var ErrCancelled = errors.New("setup cancelled")
 
 // Run returns validated options after submission or ErrCancelled on cancellation.
 // File creation belongs to the caller, after the terminal has been restored.

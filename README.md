@@ -67,11 +67,18 @@ Run CodeBound without arguments in an interactive terminal:
 codebound
 ```
 
-The Charm-based wizard asks for a project name and whether to use a custom
-module path. Choosing **No** skips the module-path question and uses the project
-name. Submitting the form creates the project using the same scaffolding logic
-as `codebound create`. Press `Ctrl+C` to cancel before submission without creating
-files. With redirected input, the root command displays help instead of prompting.
+The Charm-based menu offers two actions:
+
+- **Create a project:** enter a name and choose whether to use a custom module
+  path. Choosing **No** uses the project name. Submission creates the project
+  using the same scaffolding logic as `codebound create`.
+- **View a call tree:** enter a project directory (press Enter for the current
+  directory). The app discovers executable entry points, asks you to select one
+  only when there are multiple, and starts the browser viewer on an available port.
+
+Press `Ctrl+C` to cancel any prompt. With redirected input or output, the root
+command displays help instead of prompting. The call-tree menu and direct command
+share the same analysis, rendering, and viewer code.
 
 Project names retain the CLI's existing rules: at least five characters, starting
 with a letter, and containing only letters, digits, hyphens, or underscores.
@@ -100,30 +107,44 @@ codebound create example-api --mod github.com/repository/example-api
 
 ### Inspect a call tree
 
-Analyze calls reachable from a function and view the graph in your browser:
+From inside a project, no flags are needed:
 
 ```sh
-codebound calltree --path ./my-project --pattern ./... --root main
+cd my-project
+codebound calltree
 ```
 
-Open the printed local URL (by default `http://127.0.0.1:3000`). Press `Ctrl+C`
+Or pass the project directory directly:
+
+```sh
+codebound calltree ~/Projects/my-project
+```
+
+All packages (`./...`) are loaded by default, including nested executables such
+as `cmd/api`. A single executable `main` is selected automatically. Multiple
+entry points open a Huh selector when running the browser view in a terminal.
+Exports and non-interactive invocations never prompt: they list the choices and
+ask for `--root` instead. Libraries with no executable entry point also require
+an explicit `--root`.
+
+Open the printed local URL (the port is chosen automatically). Press `Ctrl+C`
 to stop the server. The browser view requires Graphviz's `dot` executable in
 `PATH`; the Go toolchain must also be installed to load and analyze packages.
 
 Export without Graphviz:
 
 ```sh
-codebound calltree --path ./my-project --root main --format dot > calltree.dot
-codebound calltree --path ./my-project --root main --format json > calltree.json
+codebound calltree ./my-project --format dot > calltree.dot
+codebound calltree ./my-project --format json > calltree.json
 ```
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `--path` | `.` | Project or package directory |
-| `--pattern` | `.` | Go package pattern; use `./...` to load all packages |
-| `--root` | `main` | Function name, `Type.Method`, or full package-qualified name |
+| `--path` | `.` | Alternative to the positional project directory; do not use both |
+| `--pattern` | `./...` | Override which packages are loaded |
+| `--root` | Auto-discover | Function name, `Type.Method`, or full package-qualified name |
 | `--format` | `web` | Browser viewer, `dot`, or `json` |
-| `--port` | `3000` | Browser-view port; `0` chooses an available port |
+| `--port` | `0` | Automatically choose a browser-view port; set a number for a fixed port |
 
 For ambiguous names, qualify the root, for example
 `--root example.com/app/internal/server.Server.Start`. Source packages and their
@@ -211,6 +232,7 @@ example-api/
 - Interactive project initialization with native Huh controls and Lip Gloss styling
 - Go call-tree analysis with interface/callback targets and architecture annotations
 - Local browser graph viewer and DOT/JSON export
+- Interactive action menu, automatic entry-point discovery, and a root selector
 
  ### Planned
 

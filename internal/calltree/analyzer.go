@@ -16,6 +16,15 @@ type Analyzer struct {
 	Pattern string
 }
 
+// Analysis holds loaded source so root discovery and graph construction share
+// one package load and SSA build.
+type Analysis struct {
+	dir       string
+	program   *ssa.Program
+	project   map[string]bool
+	functions map[*ssa.Function]bool
+}
+
 func New(dir string) *Analyzer {
 	return &Analyzer{Dir: dir, Pattern: "."}
 }
@@ -24,6 +33,15 @@ func New(dir string) *Analyzer {
 // CHA is conservative: interface and callback edges are possible calls, not
 // evidence that those calls occur at runtime.
 func (a *Analyzer) Analyze(ctx context.Context, rootName string) (*Graph, error) {
+	analysis, err := a.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return analysis.Analyze(ctx, rootName)
+}
+
+// Load type-checks source and builds SSA once, before any root is selected.
+func (a *Analyzer) Load(ctx context.Context) (*Analysis, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -40,13 +58,33 @@ func (a *Analyzer) Analyze(ctx context.Context, rootName string) (*Graph, error)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	project := projectPackages(loaded)
-	root, err := findFunction(ssautil.AllFunctions(program), project, rootName)
+	return &Analysis{
+		dir:       dir,
+		program:   program,
+		project:   projectPackages(loaded),
+		functions: ssautil.AllFunctions(program),
+	}, nil
+}
+
+// Analyze accepts an explicit root, or discovers a single executable main when
+// rootName is empty. Ambiguous discovery returns an EntryPointError.
+func (a *Analysis) Analyze(ctx context.Context, rootName string) (*Graph, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if rootName == "" {
+		roots := a.EntryPoints()
+		if len(roots) != 1 {
+			return nil, &EntryPointError{Candidates: roots}
+		}
+		rootName = roots[0]
+	}
+	root, err := findFunction(a.functions, a.project, rootName)
 	if err != nil {
 		return nil, err
 	}
-	graph := cha.CallGraph(program)
-	return collectCalls(ctx, program, graph, project, root, dir)
+	graph := cha.CallGraph(a.program)
+	return collectCalls(ctx, a.program, graph, a.project, root, a.dir)
 }
 
 func loadPackages(ctx context.Context, dir, pattern string) ([]*packages.Package, error) {

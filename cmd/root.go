@@ -19,7 +19,7 @@ It helps you establish boundaries between components,
 enforce architectural rules, and keep your codebase aligned
 with the structure you define.
 
-Run without arguments in a terminal for interactive project setup,
+Run without arguments in a terminal to create a project or view a call tree,
 or use create <project-name> for non-interactive creation.`,
 	Version: "0.1.4-nightly.2",
 	Args:    cobra.NoArgs,
