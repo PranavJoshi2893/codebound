@@ -1,0 +1,90 @@
+package calltree
+
+import (
+	"context"
+	"go/ast"
+	"go/token"
+	"path/filepath"
+	"sort"
+
+	"golang.org/x/tools/go/callgraph"
+	"golang.org/x/tools/go/ssa"
+)
+
+func collectCalls(ctx context.Context, program *ssa.Program, graph *callgraph.Graph, project map[string]bool, root *ssa.Function, dir string) (*Graph, error) {
+	result := &Graph{Root: describeFunction(program, root, dir), Calls: []Call{}}
+	visited := make(map[*ssa.Function]bool)
+	var visit func(*ssa.Function) error
+	visit = func(function *ssa.Function) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if visited[function] {
+			return nil
+		}
+		visited[function] = true
+		caller := describeFunction(program, function, dir)
+		for _, edge := range sortedEdges(graph.Nodes[function]) {
+			called := edge.Callee.Func
+			if _, ok := projectDeclaration(called, project); !ok {
+				continue
+			}
+			callee := describeFunction(program, called, dir)
+			throughInterface := edge.Site != nil && edge.Site.Common().IsInvoke()
+			result.Calls = append(result.Calls, Call{
+				Caller:           caller,
+				Callee:           callee,
+				ThroughInterface: throughInterface,
+				Violation:        boundaryViolation(caller, callee, throughInterface),
+			})
+			if err := visit(called); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := visit(root); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// Only projectDeclaration-checked functions reach this conversion.
+func describeFunction(program *ssa.Program, function *ssa.Function, dir string) Function {
+	declaration := function.Syntax().(*ast.FuncDecl)
+	position := program.Fset.Position(declaration.Pos())
+	file := position.Filename
+	if relative, err := filepath.Rel(dir, file); err == nil {
+		file = relative
+	}
+	result := Function{
+		Name:    functionName(declaration),
+		Package: function.Pkg.Pkg.Path(),
+		File:    file,
+		Line:    position.Line,
+	}
+	result.Layer = inferLayer(result.Package, result.File)
+	return result
+}
+
+func sortedEdges(node *callgraph.Node) []*callgraph.Edge {
+	if node == nil {
+		return nil
+	}
+	edges := append([]*callgraph.Edge(nil), node.Out...)
+	sort.SliceStable(edges, func(i, j int) bool {
+		left, right := callPosition(edges[i]), callPosition(edges[j])
+		if left != right {
+			return left < right
+		}
+		return edges[i].Callee.Func.String() < edges[j].Callee.Func.String()
+	})
+	return edges
+}
+
+func callPosition(edge *callgraph.Edge) token.Pos {
+	if edge.Site == nil {
+		return token.NoPos
+	}
+	return edge.Site.Pos()
+}

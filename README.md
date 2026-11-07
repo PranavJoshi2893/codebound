@@ -98,6 +98,52 @@ or
 codebound create example-api --mod github.com/repository/example-api
 ```
 
+### Inspect a call tree
+
+Analyze calls reachable from a function and view the graph in your browser:
+
+```sh
+codebound calltree --path ./my-project --pattern ./... --root main
+```
+
+Open the printed local URL (by default `http://127.0.0.1:3000`). Press `Ctrl+C`
+to stop the server. The browser view requires Graphviz's `dot` executable in
+`PATH`; the Go toolchain must also be installed to load and analyze packages.
+
+Export without Graphviz:
+
+```sh
+codebound calltree --path ./my-project --root main --format dot > calltree.dot
+codebound calltree --path ./my-project --root main --format json > calltree.json
+```
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--path` | `.` | Project or package directory |
+| `--pattern` | `.` | Go package pattern; use `./...` to load all packages |
+| `--root` | `main` | Function name, `Type.Method`, or full package-qualified name |
+| `--format` | `web` | Browser viewer, `dot`, or `json` |
+| `--port` | `3000` | Browser-view port; `0` chooses an available port |
+
+For ambiguous names, qualify the root, for example
+`--root example.com/app/internal/server.Server.Start`. Source packages and their
+dependencies must type-check under the active Go environment and build tags.
+
+The graph includes reachable named function and method declarations in the
+loaded modules. External-library nodes, anonymous function bodies, and synthetic
+SSA wrappers are not displayed. It uses conservative class hierarchy analysis
+(CHA), so interface and callback edges represent possible targets, not a runtime
+trace or proof that a call happens.
+
+Naming-based architecture checks annotate calls in every output format:
+
+- Handler-to-service and service-to-repository calls are allowed.
+- Direct handler-to-repository calls and other reversed/skipped layers are flagged.
+- Calls between different service packages must use an interface.
+- Unrecognized layers are left unclassified. Detection is heuristic, not a
+  configurable architecture policy or an enforcement gate; findings do not
+  change the command's exit status.
+
 ---
 
  ## Generated Project Structure
@@ -159,6 +205,8 @@ example-api/
 - Custom Go module paths
  - CLI-based project initialization
 - Interactive project initialization with native Huh controls and Lip Gloss styling
+- Go call-tree analysis with interface/callback targets and architecture annotations
+- Local browser graph viewer and DOT/JSON export
 
  ### Planned
 
@@ -195,6 +243,8 @@ example-api/
 - `internal/tui/`: form, presentation, and answer collection only; no filesystem creation or Cobra dependency.
 - `internal/project/`: shared options, validation, and project-creation entry point; no Cobra or Charm dependency.
 - `internal/scaffold/`: existing generators and embedded templates, reused by both entry paths.
+- `internal/calltree/`: package loading, SSA/CHA analysis, graph data, architecture checks, and DOT encoding; no Cobra, HTTP, or Graphviz process dependency.
+- `internal/calltree/viewer/`: Graphviz SVG rendering and a local HTTP viewer with context-driven shutdown; no Cobra dependency.
 
 Run the checks with:
 
