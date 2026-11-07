@@ -57,7 +57,26 @@ codebound --help
 
 ---
 
- ## Quick Start
+  ## Quick Start
+
+  ### Interactive setup
+
+Run CodeBound without arguments in an interactive terminal:
+
+```sh
+codebound
+```
+
+The Charm-based wizard asks for a project name and whether to use a custom
+module path. Choosing **No** skips the module-path question and uses the project
+name. Submitting the form creates the project using the same scaffolding logic
+as `codebound create`. Press `Ctrl+C` to cancel before submission without creating
+files. With redirected input, the root command displays help instead of prompting.
+
+Project names retain the CLI's existing rules: at least five characters, starting
+with a letter, and containing only letters, digits, hyphens, or underscores.
+Module paths are validated before creation. The wizard trims surrounding input
+whitespace before validation and submission.
 
  ### Create a project
 
@@ -138,7 +157,8 @@ example-api/
  - Go project scaffolding
 - Opinionated project structure
 - Custom Go module paths
-- CLI-based project initialization
+ - CLI-based project initialization
+- Interactive project initialization with native Huh controls and Lip Gloss styling
 
  ### Planned
 
@@ -167,7 +187,21 @@ example-api/
 
 ---
 
- ## Contributing
+  ## Contributing
+
+### Code organization
+
+- `cmd/`: Cobra commands and orchestration; running without arguments opens the wizard.
+- `internal/tui/`: form, presentation, and answer collection only; no filesystem creation or Cobra dependency.
+- `internal/project/`: shared options, validation, and project-creation entry point; no Cobra or Charm dependency.
+- `internal/scaffold/`: existing generators and embedded templates, reused by both entry paths.
+
+Run the checks with:
+
+```sh
+go test ./...
+go vet ./...
+```
 
  CodeBound is still in its early stages, and feedback is especially valuable right now.
 

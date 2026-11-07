@@ -6,37 +6,12 @@ package cmd
 import (
 	"fmt"
 	"log/slog"
-	"unicode"
 
-	"github.com/PranavJoshi2893/codebound/internal/scaffold/create"
+	"github.com/PranavJoshi2893/codebound/internal/project"
 	"github.com/spf13/cobra"
 )
 
-type CreateOptions struct {
-	RootDir string
-	Mod     string
-}
-
-func (o *CreateOptions) Validate() error {
-	if len(o.RootDir) < 5 {
-		return fmt.Errorf("project name must be at least 5 characters long")
-	}
-
-	for i, r := range o.RootDir {
-		if i == 0 && !unicode.IsLetter(r) {
-			return fmt.Errorf("project name must start with an English letter")
-		}
-
-		if !unicode.IsLetter(r) &&
-			!unicode.IsDigit(r) &&
-			r != '_' &&
-			r != '-' {
-			return fmt.Errorf("project name can only contain letters, numbers, hyphens (-), and underscores (_) (invalid character: %c)", r)
-		}
-	}
-
-	return nil
-}
+type CreateOptions = project.Options
 
 var createCmd = &cobra.Command{
 	Use:   "create [project-name]",
@@ -65,7 +40,7 @@ architecture and boundary rules defined by CodeBound.
 
 		slog.Info("Initializing project structure", "project", opts.RootDir)
 
-		if err := create.InitializeProject(opts.RootDir, opts.Mod); err != nil {
+		if err := project.Create(opts); err != nil {
 			slog.Error("failed to initialized", "project", opts.RootDir, "error", err)
 			return err
 		}
