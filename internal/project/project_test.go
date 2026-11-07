@@ -21,6 +21,7 @@ func TestOptionsValidate(t *testing.T) {
 		{RootDir: "tiny"}, {RootDir: "1project"}, {RootDir: "../project"},
 		{RootDir: "my project"}, {RootDir: "project", Mod: "github.com/user/my project"},
 		{RootDir: "project", Mod: "github.com/user/project/v1"},
+		{RootDir: "project", Mod: "-h"},
 	} {
 		if err := options.Validate(); err == nil {
 			t.Errorf("accepted invalid options %+v", options)
@@ -36,7 +37,7 @@ func TestCreateUsesScaffold(t *testing.T) {
 	t.Chdir(root)
 	tools := t.TempDir()
 	// Keep this test offline while exercising the real generator and templates.
-	goTool := "#!/bin/sh\nif [ \"$1 $2\" = \"mod init\" ]; then printf 'module %s\\n' \"$3\" > go.mod; fi\n"
+	goTool := "#!/bin/sh\nif [ \"$1 $2\" = \"mod init\" ]; then printf 'module %s\\n' \"$4\" > go.mod; fi\n"
 	for name, script := range map[string]string{"go": goTool, "git": "#!/bin/sh\nexit 0\n"} {
 		if err := os.WriteFile(filepath.Join(tools, name), []byte(script), 0755); err != nil {
 			t.Fatal(err)

@@ -22,11 +22,43 @@ func TestHandler(t *testing.T) {
 		{"/calltree.svg", "POST", "", "", 405},
 	} {
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(test.method, test.path, nil))
+		request := httptest.NewRequest(test.method, test.path, nil)
+		request.Host = "127.0.0.1:3000"
+		handler.ServeHTTP(response, request)
 		if response.Code != test.status ||
 			!strings.Contains(response.Header().Get("Content-Type"), test.contentType) ||
 			!strings.Contains(response.Body.String(), test.body) {
 			t.Errorf("%s %s: unexpected response %d %s", test.method, test.path, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestViewerRejectsCrossSiteAccess(t *testing.T) {
+	for _, test := range []struct {
+		host, origin, fetchSite string
+		status                  int
+	}{
+		{"evil.example:3000", "", "", 403},
+		{"localhost.evil.example", "", "", 403},
+		{"127.0.0.1:3000", "https://evil.example", "", 403},
+		{"127.0.0.1:3000", "", "cross-site", 403},
+		{"127.0.0.1:3000", "null", "", 403},
+		{"127.0.0.1:3000", "http://127.0.0.1:9999", "", 403},
+		{"127.0.0.1:3000", "http://127.0.0.1:3000", "same-origin", 200},
+		{"localhost:3000", "", "", 200},
+		{"[::1]:3000", "", "", 200},
+	} {
+		request := httptest.NewRequest("GET", "/calltree.svg", nil)
+		request.Host = test.host
+		request.Header.Set("Origin", test.origin)
+		request.Header.Set("Sec-Fetch-Site", test.fetchSite)
+		response := httptest.NewRecorder()
+		Handler([]byte("<svg/>")).ServeHTTP(response, request)
+		if response.Code != test.status {
+			t.Errorf("%+v: got status %d", test, response.Code)
+		}
+		if response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("Content-Security-Policy") == "" {
+			t.Fatal("missing viewer security headers")
 		}
 	}
 }

@@ -4,32 +4,57 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"go/token"
 	"os"
 	"path/filepath"
-	"text/template"
+	"unicode"
+
+	"github.com/PranavJoshi2893/codebound/internal/scaffold/templatefile"
 )
 
+func ValidateName(name string) error {
+	if len(name) < 5 {
+		return fmt.Errorf("api name must be at least 5 characters long")
+	}
+	for _, r := range name {
+		if !unicode.IsLetter(r) {
+			return fmt.Errorf("api name can only contain letters (invalid character: %c)", r)
+		}
+	}
+	if !token.IsIdentifier(name) {
+		return fmt.Errorf("api name must be a valid Go package identifier, not a keyword")
+	}
+	return nil
+}
+
 func CreateAPIModule(moduleName string) error {
-	root, err := findProjectRoot()
+	if err := ValidateName(moduleName); err != nil {
+		return err
+	}
+	projectDir, err := findProjectRoot()
 	if err != nil {
 		return err
 	}
 
-	folders := []string{
-		filepath.Join(root, "internal", moduleName),
-	}
-
-	for _, folder := range folders {
-		if err := os.MkdirAll(folder, 0755); err != nil {
-			return fmt.Errorf("failed to create folder %s: %w", folder, err)
-		}
-	}
-
-	if err := createModuleFiles(root, moduleName); err != nil {
+	root, err := os.OpenRoot(projectDir)
+	if err != nil {
 		return err
 	}
-
-	return nil
+	defer root.Close()
+	if err := root.MkdirAll("internal", 0755); err != nil {
+		return fmt.Errorf("create internal directory: %w", err)
+	}
+	path := filepath.Join("internal", moduleName)
+	// Require a fresh directory: never reuse existing files or symlinks.
+	if err := root.Mkdir(path, 0755); err != nil {
+		return fmt.Errorf("create module directory: %w", err)
+	}
+	moduleRoot, err := root.OpenRoot(path)
+	if err != nil {
+		return err
+	}
+	defer moduleRoot.Close()
+	return createModuleFiles(moduleRoot, moduleName)
 }
 
 func findProjectRoot() (string, error) {
@@ -58,10 +83,10 @@ type TemplateData struct {
 	Name string
 }
 
-func createModuleFiles(rootDir string, moduleName string) error {
+func createModuleFiles(root *os.Root, moduleName string) error {
 	files := map[string]string{
-		"templates/handler.go.tmpl": filepath.Join("internal", moduleName, "handler.go"),
-		"templates/service.go.tmpl": filepath.Join("internal", moduleName, "service.go"),
+		"templates/handler.go.tmpl": "handler.go",
+		"templates/service.go.tmpl": "service.go",
 	}
 
 	data := TemplateData{
@@ -74,21 +99,8 @@ func createModuleFiles(rootDir string, moduleName string) error {
 			return fmt.Errorf("failed to read embedded template %s: %w", src, err)
 		}
 
-		destPath := filepath.Join(rootDir, dest)
-
-		destFile, err := os.Create(destPath)
-		if err != nil {
-			return fmt.Errorf("failed to create file %s: %w", dest, err)
-		}
-		defer destFile.Close()
-
-		tmpl, err := template.New(filepath.Base(src)).Parse(string(content))
-		if err != nil {
-			return fmt.Errorf("failed to parse template %s: %w", src, err)
-		}
-
-		if err := tmpl.Execute(destFile, data); err != nil {
-			return fmt.Errorf("failed to execute template %s: %w", src, err)
+		if err := templatefile.Write(root, dest, string(content), data, 0644); err != nil {
+			return err
 		}
 	}
 

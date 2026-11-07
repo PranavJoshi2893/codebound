@@ -6,7 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"text/template"
+
+	"github.com/PranavJoshi2893/codebound/internal/scaffold/templatefile"
 )
 
 func InitializeProject(rootDir string, modPath string) error {
@@ -19,7 +20,7 @@ func InitializeProject(rootDir string, modPath string) error {
 		return fmt.Errorf("failed to create root directory: %w", err)
 	}
 
-	cmd := exec.Command("go", "mod", "init", mod)
+	cmd := exec.Command("go", "mod", "init", "--", mod)
 	cmd.Dir = rootDir
 
 	output, err := cmd.CombinedOutput()
@@ -55,18 +56,23 @@ func InitializeProject(rootDir string, modPath string) error {
 }
 
 func createFolders(rootDir string) error {
+	root, err := os.OpenRoot(rootDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	folders := []string{
-		filepath.Join(rootDir, "cmd", "api"),
-		filepath.Join(rootDir, "internal", "config"),
-		filepath.Join(rootDir, "internal", "database"),
-		filepath.Join(rootDir, "internal", "server"),
-		filepath.Join(rootDir, "internal", "router"),
-		filepath.Join(rootDir, "internal", "response"),
-		filepath.Join(rootDir, "migrations"),
+		filepath.Join("cmd", "api"),
+		filepath.Join("internal", "config"),
+		filepath.Join("internal", "database"),
+		filepath.Join("internal", "server"),
+		filepath.Join("internal", "router"),
+		filepath.Join("internal", "response"),
+		"migrations",
 	}
 
 	for _, folder := range folders {
-		err := os.MkdirAll(folder, 0755)
+		err := root.MkdirAll(folder, 0755)
 		if err != nil {
 			return fmt.Errorf("failed to create folder: %v", err)
 		}
@@ -83,6 +89,11 @@ type TemplateData struct {
 }
 
 func createFiles(rootDir string, modPath string) error {
+	root, err := os.OpenRoot(rootDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
 	files := map[string]string{
 		"templates/makefile.tmpl":    "Makefile",
 		"templates/.env.tmpl":        ".env",
@@ -105,30 +116,13 @@ func createFiles(rootDir string, modPath string) error {
 			return fmt.Errorf("failed to read embedded template %s: %w", src, err)
 		}
 
-		destPath := filepath.Join(rootDir, dest)
-
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return fmt.Errorf("failed to create directory for %s: %w", dest, err)
-		}
-
 		perm := os.FileMode(0644)
 		if dest == ".env" {
 			perm = 0600
 		}
 
-		destFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
-		if err != nil {
-			return fmt.Errorf("failed to create file %s: %w", dest, err)
-		}
-		defer destFile.Close()
-
-		tmpl, err := template.New(filepath.Base(src)).Parse(string(content))
-		if err != nil {
-			return fmt.Errorf("failed to parse template %s: %w", src, err)
-		}
-
-		if err := tmpl.Execute(destFile, data); err != nil {
-			return fmt.Errorf("failed to execute template %s: %w", src, err)
+		if err := templatefile.Write(root, dest, string(content), data, perm); err != nil {
+			return err
 		}
 	}
 

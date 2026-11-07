@@ -4,9 +4,6 @@ Copyright © 2026 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"fmt"
-	"unicode"
-
 	"github.com/PranavJoshi2893/codebound/internal/scaffold/module"
 	"github.com/spf13/cobra"
 )
@@ -16,17 +13,7 @@ type ModuleOptions struct {
 }
 
 func (o *ModuleOptions) Validate() error {
-	if len(o.Name) < 5 {
-		return fmt.Errorf("api name must be at least 5 characters long")
-	}
-
-	for _, r := range o.Name {
-		if !unicode.IsLetter(r) {
-			return fmt.Errorf("api name can only contain letters: %c)", r)
-		}
-	}
-
-	return nil
+	return module.ValidateName(o.Name)
 }
 
 var moduleCmd = &cobra.Command{
@@ -44,8 +31,7 @@ var moduleCmd = &cobra.Command{
 			return err
 		}
 
-		module.CreateAPIModule(modOpts.Name)
-		return nil
+		return module.CreateAPIModule(modOpts.Name)
 	},
 }
 

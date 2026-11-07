@@ -35,6 +35,9 @@ func ValidateModulePath(path string) error {
 	if path == "" {
 		return fmt.Errorf("module path is required")
 	}
+	if strings.HasPrefix(path, "-") {
+		return fmt.Errorf("module path must not start with a dash")
+	}
 	// Local module names are supported by go mod init too.
 	first, _, _ := strings.Cut(path, "/")
 	if !strings.Contains(first, ".") {

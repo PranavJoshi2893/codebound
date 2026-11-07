@@ -152,6 +152,10 @@ Generated servers listen on `127.0.0.1` by default. For public deployments,
 place the server behind an HTTPS reverse proxy. The generated `.env` file
 uses owner-only permissions (`0600`) on Unix systems.
 
+Generated applications do not enable wildcard CORS. Configure an explicit
+trusted-origin allowlist if needed. See [security notes](SECURITY.md) for
+filesystem protections, viewer restrictions, and remaining trust assumptions.
+
  Running:
 
 ```
