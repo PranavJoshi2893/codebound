@@ -17,10 +17,13 @@ type traversalFrame struct {
 }
 
 func (a *Analysis) collectCalls(ctx context.Context, graph *callgraph.Graph, root *ssa.Function) (*Graph, error) {
-	result := &Graph{Root: a.describeFunction(root), Calls: []Call{}}
+	rootInfo := a.analyzeFunction(root)
+	result := &Graph{Root: rootInfo.description, Calls: []Call{}}
 	// A cached description also marks a function as discovered. Each function
 	// is converted and expanded once, even when many callers share it.
-	descriptions := map[*ssa.Function]Function{root: result.Root}
+	descriptions := map[*ssa.Function]analyzedFunction{root: rootInfo}
+	order := []*ssa.Function{root}
+	var contextCalls []contextCall
 	stack := []traversalFrame{{function: root, edges: sortedEdges(graph.Nodes[root])}}
 	for len(stack) > 0 {
 		if err := ctx.Err(); err != nil {
@@ -40,18 +43,22 @@ func (a *Analysis) collectCalls(ctx context.Context, graph *callgraph.Graph, roo
 		}
 		callee, discovered := descriptions[calleeFunction]
 		if !discovered {
-			callee = a.describeFunction(calleeFunction)
+			callee = a.analyzeFunction(calleeFunction)
 			descriptions[calleeFunction] = callee
+			order = append(order, calleeFunction)
 		}
 
 		throughInterface := edge.Site != nil && edge.Site.Common().IsInvoke()
 		caller := descriptions[frame.function]
 		result.Calls = append(result.Calls, Call{
-			Caller:           caller,
-			Callee:           callee,
+			Caller:           caller.description,
+			Callee:           callee.description,
 			ThroughInterface: throughInterface,
-			Violation:        boundaryViolation(caller, callee, throughInterface),
+			Violation:        boundaryViolation(caller.description, callee.description, throughInterface),
 		})
+		if caller.contexts != nil || callee.contexts != nil {
+			contextCalls = append(contextCalls, contextCall{edge: edge, index: len(result.Calls) - 1})
+		}
 		// Keep calls to already discovered functions (including recursion),
 		// but do not expand their bodies again.
 		if !discovered {
@@ -60,6 +67,9 @@ func (a *Analysis) collectCalls(ctx context.Context, graph *callgraph.Graph, roo
 				edges:    sortedEdges(graph.Nodes[calleeFunction]),
 			})
 		}
+	}
+	if err := annotateContextFlow(ctx, graph, result, descriptions, order, contextCalls); err != nil {
+		return nil, err
 	}
 	return result, nil
 }

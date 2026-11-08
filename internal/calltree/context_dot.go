@@ -3,299 +3,286 @@ package calltree
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 )
 
-// Context origins are local to a function. Unresolved origins also need their
-// call site: two unrelated "unresolved" values must not become one context.
-type contextDOTNode struct {
-	owner                   functionID
-	source, scope, location string
-}
-
-// Group only arrows with identical endpoints, direction, and cancellation kind.
-// Red cancellation arrows must remain separate from ordinary context flow.
-type contextDOTArrowID struct {
-	from, to     string
-	cancellation bool
-}
-
-type contextDOTArrow struct {
-	id          contextDOTArrowID
-	labels      []string
-	details     []string
-	seenLabels  map[string]bool
-	seenDetails map[string]bool
-}
-
-type contextDOT struct {
-	output       io.Writer
-	functions    map[functionID]int
-	targets      map[string]int
-	contexts     map[contextDOTNode]string
-	otherTargets map[contextDOTNode]string
-	written      []bool
-	arrows       []contextDOTArrow
-	arrowIDs     map[contextDOTArrowID]int
+// The hybrid view keeps usage in function boxes. Only real creation sites get
+// separate markers; parameters and context reads never create extra nodes.
+type contextMarker struct {
+	owner           Function
+	operation       ContextOperation
+	cancels         []string
+	parentMayCancel bool
 }
 
 func writeContextDOT(output io.Writer, graph *Graph, functions map[functionID]int) error {
-	hasContexts := graph.Root.Context != nil
-	for _, call := range graph.Calls {
-		if hasContexts {
-			break
+	var markers []contextMarker
+	byID := make(map[string]int)
+	visited := make(map[functionID]bool)
+	var descriptions []Function
+	hasContexts := false
+	addFunction := func(function Function) {
+		if function.Context == nil || visited[function.id()] {
+			return
 		}
-		hasContexts = call.Caller.Context != nil || call.Callee.Context != nil
+		visited[function.id()] = true
+		descriptions = append(descriptions, function)
+		hasContexts = true
+		for _, operation := range function.Context.Operations {
+			if operation.Kind != "create" && operation.Kind != "derive" && operation.Kind != "detach" {
+				continue
+			}
+			if len(operation.IDs) == 1 {
+				if _, exists := byID[operation.IDs[0]]; exists {
+					continue
+				}
+				byID[operation.IDs[0]] = len(markers)
+			}
+			markers = append(markers, contextMarker{owner: function, operation: operation})
+		}
+	}
+	addFunction(graph.Root)
+	for _, call := range graph.Calls {
+		addFunction(call.Caller)
+		addFunction(call.Callee)
 	}
 	if !hasContexts {
 		return nil
 	}
-	// Let dot reserve space for context nodes and arrow labels instead of
-	// forcing them onto their owner's row, where parallel labels collide.
+	for _, function := range descriptions {
+		if function.Context == nil {
+			continue
+		}
+		for _, operation := range function.Context.Operations {
+			if operation.Kind != "cancel" {
+				continue
+			}
+			condition := "cancel in " + function.Name + contextScopeLabel(operation)
+			if len(operation.IDs) > 1 || operation.Unresolved {
+				condition += " (possible target)"
+			}
+			for _, id := range operation.IDs {
+				if index, exists := byID[id]; exists && !slices.Contains(markers[index].cancels, condition) {
+					markers[index].cancels = append(markers[index].cancels, condition)
+				}
+			}
+		}
+	}
 	if _, err := fmt.Fprintln(output, "  graph [nodesep=0.6, ranksep=0.9, pad=0.3];"); err != nil {
 		return err
 	}
-	renderer := contextDOT{
-		output: output, functions: functions,
-		targets: make(map[string]int), contexts: make(map[contextDOTNode]string),
-		otherTargets: make(map[contextDOTNode]string), written: make([]bool, len(functions)),
-		arrowIDs: make(map[contextDOTArrowID]int),
-	}
-	// Index targets before drawing arrows, including calls to functions that
-	// appear later in the depth-first call tree.
-	renderer.indexTarget(graph.Root)
-	for _, call := range graph.Calls {
-		renderer.indexTarget(call.Caller)
-		renderer.indexTarget(call.Callee)
-	}
-	if err := renderer.writeFunction(graph.Root); err != nil {
-		return err
-	}
-	for _, call := range graph.Calls {
-		if err := renderer.writeFunction(call.Caller); err != nil {
+	for index, marker := range markers {
+		marker.parentMayCancel = contextParentMayCancel(marker.operation, markers, byID)
+		if _, err := fmt.Fprintf(output, "  c%d [shape=note, color=\"#2563eb\", label=%q, tooltip=%q];\n", index, marker.label(), contextOperationDetails(marker.operation)); err != nil {
 			return err
 		}
-		if err := renderer.writeFunction(call.Callee); err != nil {
+		id := contextIDsLabel(marker.operation.IDs, marker.operation.Unresolved)
+		if _, err := fmt.Fprintf(output, "  n%d -> c%d [style=dashed, weight=0, color=\"#2563eb\", label=%q, fontsize=11];\n", functions[marker.owner.id()], index, "starts "+id+contextScopeLabel(marker.operation)); err != nil {
 			return err
 		}
+		for _, parent := range marker.operation.ParentIDs {
+			if parentIndex, exists := byID[parent]; exists && parentIndex != index {
+				label := "child of " + parent
+				if marker.operation.Kind == "detach" {
+					label = "values only; cancellation detached"
+				}
+				if marker.operation.ParentUnresolved || len(marker.operation.ParentIDs) > 1 {
+					label = "possible " + label
+				}
+				if _, err := fmt.Fprintf(output, "  c%d -> c%d [style=dashed, weight=0, color=\"#2563eb\", label=%q, fontsize=11];\n", parentIndex, index, label); err != nil {
+					return err
+				}
+			}
+		}
 	}
-	if err := renderer.writeArrows(); err != nil {
-		return err
-	}
-	if len(renderer.contexts) > 0 {
-		_, err := fmt.Fprintln(output, `  graph [label="Solid arrows: function calls | dashed arrows: context flow", labelloc=b, fontsize=10];`)
-		return err
-	}
-	return nil
+	_, err := fmt.Fprintln(output, `  graph [label="C: creation site | I: outside-tree input\nCall arrows carry context IDs; cancellation conditions are not runtime end points", labelloc=b, fontsize=10];`)
+	return err
 }
 
-func (d *contextDOT) indexTarget(function Function) {
-	id := d.functions[function.id()]
-	names := []string{function.Package + "." + function.Name}
-	if receiver, method, ok := strings.Cut(function.Name, "."); ok {
-		// SSA prints pointer/value method calls differently from source names.
-		names = append(names, "(*"+function.Package+"."+receiver+")."+method, "("+function.Package+"."+receiver+")."+method)
+func (marker contextMarker) label() string {
+	operation := marker.operation
+	start := marker.owner.Name
+	if operation.Scope != "" {
+		start = "closure in " + start
 	}
-	for _, name := range names {
-		if previous, exists := d.targets[name]; exists && previous != id {
-			d.targets[name] = -1 // Never guess between ambiguous declarations.
+	lines := []string{contextIDsLabel(operation.IDs, operation.Unresolved) + " · " + shortContextTarget(operation.Target), "START: " + start, operation.Location}
+	if operation.Parent != "" {
+		parent := contextIDsLabel(operation.ParentIDs, operation.ParentUnresolved)
+		if len(operation.ParentIDs) == 0 {
+			parent = "unresolved"
+		}
+		lines = append(lines, "Parent: "+parent)
+		if len(operation.IDs) == 1 && slices.Contains(operation.ParentIDs, operation.IDs[0]) {
+			lines = append(lines, "same-site parent: earlier invocation/iteration")
+		}
+	}
+	switch operation.Target {
+	case "context.Background", "context.TODO":
+		lines = append(lines, "CANCELLATION: none; no deadline")
+	case "context.WithoutCancel":
+		lines = append(lines, "CANCELLATION: detached; no deadline")
+	case "context.WithValue":
+		if marker.parentMayCancel {
+			lines = append(lines, "CANCELLATION: follows parent")
 		} else {
-			d.targets[name] = id
+			lines = append(lines, "CANCELLATION: none from parent; no deadline")
+		}
+	default:
+		lines = append(lines, "CAN CANCEL WHEN:")
+		if strings.HasPrefix(operation.Detail, "timeout:") || strings.HasPrefix(operation.Detail, "deadline:") {
+			lines = append(lines, operation.Detail)
+		}
+		if operation.Target == "signal.NotifyContext" {
+			lines = append(lines, "configured signal arrives")
+		}
+		if marker.parentMayCancel {
+			lines = append(lines, "parent is cancelled (if cancellable)")
+		}
+		if len(marker.cancels) == 0 {
+			lines = append(lines, "cancel/stop function (call not resolved here)")
+		} else {
+			lines = append(lines, marker.cancels...)
 		}
 	}
+	return strings.Join(lines, "\n")
 }
 
-func (d *contextDOT) writeFunction(function Function) error {
-	id := d.functions[function.id()]
-	if function.Context == nil || d.written[id] {
+// Background, TODO, and WithoutCancel cannot cancel their children. WithValue
+// adds no cancellation of its own, so follow its parents instead of guessing.
+func contextParentMayCancel(operation ContextOperation, markers []contextMarker, byID map[string]int) bool {
+	if operation.ParentUnresolved || (operation.Parent != "" && len(operation.ParentIDs) == 0) {
+		return true
+	}
+	pending := append([]string(nil), operation.ParentIDs...)
+	seen := make(map[string]bool)
+	for len(pending) > 0 {
+		id := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		index, exists := byID[id]
+		if !exists {
+			return true // Outside-tree inputs can be cancellable.
+		}
+		parent := markers[index].operation
+		switch parent.Target {
+		case "context.Background", "context.TODO", "context.WithoutCancel":
+		case "context.WithValue":
+			if parent.ParentUnresolved || len(parent.ParentIDs) == 0 {
+				return true
+			}
+			pending = append(pending, parent.ParentIDs...)
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func contextFunctionSummary(info *ContextInfo) []string {
+	if info == nil {
 		return nil
 	}
-	d.written[id] = true
-	functionNode := fmt.Sprintf("n%d", id)
-	for _, parameter := range function.Context.Parameters {
-		origin := "parameter " + parameter
-		node, err := d.sourceNode(function, origin, "", "")
-		if err != nil {
-			return err
+	var lines []string
+	seen := make(map[string]bool)
+	observed := make(map[string]bool)
+	for _, operation := range info.Operations {
+		if operation.Kind == "observe" {
+			observed[operation.Context+"\x00"+operation.Scope] = true
 		}
-		d.addArrow(node, functionNode, "receives", "Context parameter: "+parameter, false)
 	}
-	// Register all creation sites first, so references inside closures and
-	// branch merges can reuse a context even if it is mentioned earlier.
-	for _, operation := range function.Context.Operations {
+	for index, parameter := range info.Parameters {
+		label := "unresolved origin"
+		if index < len(info.Bindings) {
+			binding := info.Bindings[index]
+			label = contextIDsLabel(binding.IDs, binding.Unresolved)
+			if slices.ContainsFunc(binding.IDs, func(id string) bool { return strings.HasPrefix(id, "I") }) {
+				label += " (origin outside tree)"
+			}
+		}
+		line := parameter + ": " + label
+		lines = append(lines, line)
+		seen[line] = true
+	}
+	for _, operation := range info.Operations {
+		ids := contextIDsLabel(operation.IDs, operation.Unresolved)
+		var action string
 		switch operation.Kind {
 		case "create", "derive", "detach":
-			key := contextDOTNode{owner: function.id(), source: operation.Context}
-			if _, err := d.contextNode(key, contextNodeLabel(operation), contextOperationDetails(operation), false); err != nil {
-				return err
+			action = "starts " + ids + ": " + shortContextTarget(operation.Target)
+		case "forward":
+			action = "passes " + ids + " to " + shortContextTarget(operation.Target)
+		case "cancel":
+			action = "cancel/stop " + ids
+		case "observe":
+			action = "observes Done: " + ids
+		case "read":
+			if operation.Target == "context.Context.Done" {
+				// A receive is stronger evidence than merely obtaining a channel.
+				if observed[operation.Context+"\x00"+operation.Scope] {
+					continue
+				}
+				action = "gets Done channel: " + ids
+			} else {
+				action = "reads " + shortContextTarget(operation.Target) + ": " + ids
+			}
+		}
+		if action != "" {
+			action += contextScopeLabel(operation)
+			if !seen[action] {
+				seen[action] = true
+				lines = append(lines, action)
 			}
 		}
 	}
-	for _, operation := range function.Context.Operations {
-		if err := d.writeOperation(function, operation); err != nil {
-			return err
-		}
-	}
-	return nil
+	return lines
 }
 
-func (d *contextDOT) writeOperation(function Function, operation ContextOperation) error {
-	contextNode, err := d.sourceNode(function, operation.Context, operation.Scope, operation.Location)
-	if err != nil {
-		return err
+func contextIDsLabel(ids []string, unresolved bool) string {
+	if len(ids) == 0 {
+		return "unresolved context"
 	}
-	functionNode := fmt.Sprintf("n%d", d.functions[function.id()])
-	details := contextOperationDetails(operation)
-	switch operation.Kind {
-	case "create", "derive", "detach":
-		d.addArrow(functionNode, contextNode, contextArrowLabel("creates", operation), details, false)
-		if operation.Parent != "" {
-			parent, err := d.sourceNode(function, operation.Parent, operation.Scope, operation.Location)
-			if err != nil {
-				return err
-			}
-			label := "parent"
-			if operation.Kind == "detach" {
-				label = "values only\nno cancellation/deadline"
-			}
-			d.addArrow(parent, contextNode, label, details, false)
-		}
-	case "forward":
-		target, err := d.targetNode(function, operation)
-		if err != nil {
-			return err
-		}
-		label := contextArrowLabel("passes context\nvia "+function.Name, operation)
-		d.addArrow(contextNode, target, label, details, false)
-	case "read":
-		label := "reads " + strings.TrimPrefix(operation.Target, "context.Context.")
-		if operation.Target == "context.Context.Done" {
-			label = "gets Done channel"
-		}
-		d.addArrow(contextNode, functionNode, contextArrowLabel(label, operation), details, false)
-	case "observe":
-		d.addArrow(contextNode, functionNode, contextArrowLabel("observes Done", operation), details, false)
-	case "cancel":
-		d.addArrow(functionNode, contextNode, contextArrowLabel("cancels", operation), details, true)
+	label := strings.Join(ids, " / ")
+	if len(ids) > 1 || unresolved {
+		label = "possible " + label
 	}
-	return nil
-}
-
-func (d *contextDOT) sourceNode(owner Function, origin, scope, location string) (string, error) {
-	key := contextDOTNode{owner: owner.id(), source: origin}
-	if node, exists := d.contexts[key]; exists {
-		return node, nil
-	}
-	if strings.HasPrefix(origin, "parameter ") && !strings.Contains(origin, " or ") {
-		return d.contextNode(key, strings.TrimPrefix(origin, "parameter ")+"\ncontext input", origin, false)
-	}
-	key.scope, key.location = scope, location
-	if scope == "" && location == "" {
-		key.location = fmt.Sprintf("unknown site %d", len(d.contexts))
-	}
-	label := "possible context source\n" + origin
-	if origin == "unresolved" || origin == "" {
-		label = "unresolved context"
-	} else if origin == "nil" {
-		label = "nil context"
-	}
-	return d.contextNode(key, label, origin+"\n"+location+"\n"+scope, true)
-}
-
-func (d *contextDOT) contextNode(key contextDOTNode, label, details string, uncertain bool) (string, error) {
-	if node, exists := d.contexts[key]; exists {
-		return node, nil
-	}
-	node := fmt.Sprintf("c%d", len(d.contexts))
-	d.contexts[key] = node
-	shape := "ellipse"
-	if uncertain {
-		shape = "diamond"
-	}
-	_, err := fmt.Fprintf(d.output, "  %s [shape=%s, color=\"#2563eb\", label=%q, tooltip=%q];\n", node, shape, label, details)
-	return node, err
-}
-
-func (d *contextDOT) targetNode(owner Function, operation ContextOperation) (string, error) {
-	if id, exists := d.targets[operation.Target]; exists && id >= 0 {
-		return fmt.Sprintf("n%d", id), nil
-	}
-	// Keep unmatched endpoints distinct from actual project declarations.
-	key := contextDOTNode{owner: owner.id(), source: operation.Target, scope: operation.Scope}
-	if operation.Target == "unresolved callback" || operation.Target == "" {
-		key.location = operation.Location
-		if key.location == "" {
-			key.location = fmt.Sprintf("unknown site %d", len(d.otherTargets))
-		}
-	}
-	if node, exists := d.otherTargets[key]; exists {
-		return node, nil
-	}
-	node := fmt.Sprintf("t%d", len(d.otherTargets))
-	d.otherTargets[key] = node
-	label := "unmatched context target\n" + operation.Target
-	_, err := fmt.Fprintf(d.output, "  %s [shape=note, style=dashed, label=%q];\n", node, label)
-	return node, err
-}
-
-func (d *contextDOT) addArrow(from, to, label, details string, cancellation bool) {
-	id := contextDOTArrowID{from: from, to: to, cancellation: cancellation}
-	index, exists := d.arrowIDs[id]
-	if !exists {
-		index = len(d.arrows)
-		d.arrowIDs[id] = index
-		d.arrows = append(d.arrows, contextDOTArrow{
-			id: id, seenLabels: make(map[string]bool), seenDetails: make(map[string]bool),
-		})
-	}
-	arrow := &d.arrows[index]
-	if !arrow.seenLabels[label] {
-		arrow.seenLabels[label] = true
-		arrow.labels = append(arrow.labels, label)
-	}
-	if details != "" && !arrow.seenDetails[details] {
-		arrow.seenDetails[details] = true
-		arrow.details = append(arrow.details, details)
-	}
-}
-
-func (d *contextDOT) writeArrows() error {
-	for _, arrow := range d.arrows {
-		color := "#2563eb"
-		if arrow.id.cancellation {
-			color = "#b91c1c"
-		}
-		// Keep stable source order, unique visible actions, and all distinct
-		// source details, without drawing one parallel line per operation.
-		label := strings.Join(arrow.labels, "\n")
-		details := strings.Join(arrow.details, "\n\n")
-		_, err := fmt.Fprintf(d.output, "  %s -> %s [style=dashed, weight=0, color=%q, label=%q, fontsize=11, tooltip=%q];\n", arrow.id.from, arrow.id.to, color, label, details)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func contextNodeLabel(operation ContextOperation) string {
-	label := operation.Target
-	switch {
-	case operation.Kind == "create":
-		label += "\nindependent"
-	case operation.Kind == "detach":
-		label += "\ncancellation detached"
-	case strings.HasPrefix(operation.Detail, "timeout:"), strings.HasPrefix(operation.Detail, "deadline:"):
-		label += "\n" + operation.Detail
-	}
-	if operation.Location != "" {
-		label += "\n" + operation.Location
+	if unresolved {
+		label += " / unknown"
 	}
 	return label
 }
 
-func contextArrowLabel(action string, operation ContextOperation) string {
+func contextCallLabel(call Call) string {
+	var labels []string
+	if call.Violation != "" {
+		labels = append(labels, call.Violation)
+	}
+	if call.ThroughInterface {
+		labels = append(labels, "interface")
+	}
+	for _, binding := range call.Contexts {
+		labels = append(labels, binding.Parameter+"="+contextIDsLabel(binding.IDs, binding.Unresolved))
+	}
+	if len(call.Contexts) > 0 && call.Execution != "" {
+		labels = append(labels, "["+call.Execution+"]")
+	}
+	return strings.Join(labels, "\n")
+}
+
+func shortContextTarget(target string) string {
+	if index := strings.LastIndex(target, "."); index >= 0 {
+		return target[index+1:]
+	}
+	return target
+}
+
+func contextScopeLabel(operation ContextOperation) string {
+	var labels []string
 	if operation.Execution != "" {
-		action += " [" + operation.Execution + "]"
+		labels = append(labels, operation.Execution)
 	}
 	if operation.Scope != "" {
 		scope := "closure"
@@ -304,17 +291,17 @@ func contextArrowLabel(action string, operation ContextOperation) string {
 		} else if strings.HasPrefix(operation.Scope, "deferred ") {
 			scope = "deferred closure"
 		}
-		action += " [" + scope + "]"
+		labels = append(labels, scope)
 	}
-	return action
+	if len(labels) == 0 {
+		return ""
+	}
+	return " [" + strings.Join(labels, ", ") + "]"
 }
 
 func contextOperationDetails(operation ContextOperation) string {
 	lines := []string{operation.Kind + ": " + operation.Target, "context: " + operation.Context}
-	if operation.Parent != "" {
-		lines = append(lines, "parent: "+operation.Parent)
-	}
-	for _, detail := range []string{operation.Detail, operation.Location, operation.Execution, operation.Scope} {
+	for _, detail := range []string{operation.Parent, operation.Detail, operation.Location, operation.Execution, operation.Scope} {
 		if detail != "" {
 			lines = append(lines, detail)
 		}

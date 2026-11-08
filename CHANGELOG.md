@@ -5,15 +5,16 @@ All notable changes to CodeBound will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and this project adheres to [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [v0.1.4-nightly.4] - 2026-11-08
 
 ### Added
+- Propagate context creation-site IDs through actual call arguments, retaining possible/unknown inputs, parent relationships, and cancellation evidence.
 - Browser graph zoom controls, cursor-centered wheel zoom, drag-to-pan, fit/reset, and keyboard navigation without external JavaScript dependencies.
 - Context usage annotations in JSON, DOT, and browser call trees: parameters, creation and parent origins, timeouts, forwarding, cancellation-channel receives, and cancellation calls, with closure scopes and explicit unresolved origins.
 
 ### Changed
-- Use polygonal graph connectors, combine parallel context actions into labeled arrows, and draw repeated equivalent function-call edges once without changing JSON findings.
-- Display contexts as separate nodes with labeled dashed arrows instead of placing context details inside function boxes; keep solid call arrows and full JSON findings.
+- Use a hybrid context view: usage inside function boxes, context IDs on call arrows, and creation/lifecycle markers showing starts and possible cancellation conditions.
+- Keep polygonal connectors and combine repeated equivalent call edges, while keeping different context bindings distinct and preserving JSON findings.
 - Organize call-tree loading, root selection, function descriptions, and traversal into focused methods with shared analysis state and simple return types.
 
 ### Fixed

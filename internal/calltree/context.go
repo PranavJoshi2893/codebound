@@ -16,14 +16,16 @@ import (
 type contextInspector struct {
 	analysis         *Analysis
 	function         *ssa.Function
+	owner            functionID
 	info             ContextInfo
 	bindings         map[*ssa.FreeVar]ssa.Value
 	stores           map[ssa.Value][]ssa.Value
 	escaped          map[ssa.Value]bool
 	closureExecution map[*ssa.Function][]string
+	origins          map[string][]ssa.Value
 }
 
-func (a *Analysis) inspectContexts(function *ssa.Function) *ContextInfo {
+func (a *Analysis) inspectContexts(function *ssa.Function) *contextInspector {
 	inspector := contextInspector{
 		analysis:         a,
 		function:         function,
@@ -31,6 +33,7 @@ func (a *Analysis) inspectContexts(function *ssa.Function) *ContextInfo {
 		stores:           make(map[ssa.Value][]ssa.Value),
 		escaped:          make(map[ssa.Value]bool),
 		closureExecution: make(map[*ssa.Function][]string),
+		origins:          make(map[string][]ssa.Value),
 	}
 	for _, parameter := range function.Params {
 		if isContextType(parameter.Type()) {
@@ -44,7 +47,7 @@ func (a *Analysis) inspectContexts(function *ssa.Function) *ContextInfo {
 	if len(inspector.info.Parameters) == 0 && len(inspector.info.Operations) == 0 {
 		return nil
 	}
-	return &inspector.info
+	return &inspector
 }
 
 func (i *contextInspector) inspectFunction(function *ssa.Function, scope string) {
@@ -148,8 +151,18 @@ func (i *contextInspector) inspectReceive(channel ssa.Value, position token.Pos,
 		origins = append(origins, "unresolved")
 	}
 	if known {
+		origin := joinContextOrigins(origins)
+		var values []ssa.Value
+		for _, source := range origins {
+			if sources, exists := i.origins[source]; exists {
+				values = append(values, sources...)
+			} else {
+				values = append(values, nil)
+			}
+		}
+		i.origins[origin] = values
 		i.info.Operations = append(i.info.Operations, ContextOperation{
-			Kind: "observe", Context: joinContextOrigins(origins), Target: "context.Context.Done",
+			Kind: "observe", Context: origin, Target: "context.Context.Done",
 			Detail: detail, Location: i.location(position), Scope: scope,
 		})
 	}

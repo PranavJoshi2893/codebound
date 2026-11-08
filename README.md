@@ -1,4 +1,4 @@
-# CodeBound `v0.1.4-nightly.3`
+# CodeBound `v0.1.4-nightly.4`
 
  **CodeBound is an opinionated Go CLI for scaffolding consistent project structures and building toward enforceable architectural boundaries.**
 
@@ -10,7 +10,7 @@
 codebound create example-api
 ```
 
- > **Prerelease Notice:** CodeBound is currently in **v0.1.4-nightly.3**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
+ > **Prerelease Notice:** CodeBound is currently in **v0.1.4-nightly.4**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
 
 ---
 
@@ -46,7 +46,7 @@ codebound create example-api
  Make sure you have [Go](<https://go.dev/>) installed, then install CodeBound:
 
 ```
-go install github.com/PranavJoshi2893/codebound@v0.1.4-nightly.3
+go install github.com/PranavJoshi2893/codebound@v0.1.4-nightly.4
 ```
 
  Verify the installation:
@@ -205,28 +205,44 @@ Naming-based architecture checks annotate calls in every output format:
 
 ### Context usage in the call tree
 
-Context findings appear automatically as **separate context nodes and dashed
-arrows** in the browser/DOT graph. Function boxes contain only function identity
-and architecture layer. Solid arrows remain function calls; dashed arrows show
-context relationships, with cancellation arrows in red. No extra flag is needed.
+The browser/DOT graph uses a **hybrid lifecycle view**: usage stays inside each
+function box, and existing call arrows carry the context IDs being passed.
+Only context creation and derivation sites get separate lifecycle markers.
+No extra flag is needed.
 
-Context inputs and creation sites use ellipses. Arrows are labeled `receives`,
-`creates`, `parent`, `passes context`, `reads`, `observes Done`, or `cancels`.
-`WithoutCancel` uses a `values only` parent arrow rather than implying inherited
-cancellation. Unresolved or missing origins use diamonds; targets not matched to a displayed
-function use separate notes labeled `unmatched context target`, rather than
-guessing a concrete destination.
+For example, a signal context can continue through the call tree without being
+drawn as a different context at every parameter:
 
-Connectors use straight segments with bends where needed to avoid nodes.
-Context actions with the same source, destination, and direction share one arrow
-with combined labels; cancellation remains a separate red arrow. Repeated
-equivalent function-call edges are drawn once. JSON retains all analysis entries.
+```text
+main [starts C2; deferred stop C2]
+  └─ ctx=C2 → run
+               └─ ctx=C2 → Server.Run [observes Done: C2]
+```
+
+- **`C1`, `C2`, …** identify creation sites in this graph, not unique runtime
+  objects. A loop or repeated invocation can create many objects at one site.
+- **`I1`, `I2`, …** identify inputs at the selected root. Their creation is
+  outside the analyzed tree; receiving them does not count as a new creation.
+- **Function boxes** summarize receiving, creating, forwarding, reading, and
+  cancelling contexts. `observes Done` is distinguished from merely getting the
+  `Done()` channel.
+- **Call arrows** match actual SSA arguments to parameters, including interface
+  receivers. Multiple possible inputs are labeled `possible`; unsupported flows
+  stay unresolved. Calls passing different IDs remain separate arrows.
+- **Lifecycle markers** show `START`, parent IDs, and possible cancellation
+  conditions: timeout/deadline, signals, parent cancellation, or a resolved
+  cancel/stop call (including deferred calls). `WithoutCancel` explicitly detaches
+  cancellation and deadlines. `Background` and `TODO` have no cancellation.
+
+Connectors use straight segments with bends where needed. Repeated equivalent
+call edges are drawn once, without dropping JSON analysis entries.
 
 Full operation details remain in each function's optional `context` JSON field:
 
 | Finding | Meaning |
 | --- | --- |
 | `parameters` | Parameters declared as `context.Context`, including type aliases |
+| `bindings` | Possible source IDs received by each parameter |
 | `create` | An independent `context.Background()` or `context.TODO()` |
 | `derive` | A child created with cancellation, timeout, deadline, values, or `signal.NotifyContext` |
 | `detach` | `context.WithoutCancel`: parent values remain, but cancellation and deadline are not inherited |
@@ -235,24 +251,28 @@ Full operation details remain in each function's optional `context` JSON field:
 | `observe` | A channel receive or select receive case using a traced `Done()` channel |
 | `cancel` | A call to a cancellation function, with its originating context when known |
 
-Each JSON operation includes a source location; context creation nodes show their
-creation locations. Findings distinguish incoming
+Each JSON operation includes a source location and resolved `ids`, `parent_ids`,
+and uncertainty flags when applicable. Each call's optional `contexts` list
+records its context argument bindings. Lifecycle markers show their creation
+locations. Findings distinguish incoming
 parameters, derived children, and independent contexts; constant timeouts are
 shown as durations, while runtime values are labeled `dynamic`. Calls made with
 `defer` or `go` are labeled accordingly. Context facts inside anonymous functions
 are attached to the enclosing named function with a separate closure scope;
 closure declarations alone do not prove invocation.
 
-This is a local, conservative source inspection, not an end-to-end runtime
-context trace. It follows local aliases, branch merges, and captured variables.
-Parameters identify local inputs, and forwarding operations identify outgoing
-calls; it does not substitute caller values throughout every callee. Origins
-through fields, globals, custom wrapper returns, or unsupported indirect calls
-can remain `unresolved`. Escaping pointers add an unresolved possibility, and
-merged branches may list several origins. Unsupported usage can be omitted;
-absence of a finding is not proof of absence of context usage.
+This is a conservative source inspection, not a runtime context trace. It follows
+local aliases, branch merges, and captured variables, then propagates possible
+source IDs across supported calls until the bindings stop changing. Shared
+callees can receive several possible IDs, while individual call arrows retain
+their argument bindings. Recursive calls are supported without inventing new
+creations for parameters. Origins through fields, globals, custom wrapper
+returns, or unsupported indirect/synthetic calls can remain `unresolved` or be
+omitted. Escaping pointers add an unresolved possibility. Absence of a finding
+is not proof of absence of context usage.
 
-Merely receiving a context, calling `Done()`, or having a receive case does not
+Cancellation conditions are **not proven runtime end points** and are not the
+same as a function returning. Merely receiving a context, calling `Done()`, or having a receive case does not
 prove a function will stop on cancellation. No cancellation-compliance or leak
 verdict is issued. Context keys, values, and cancellation-cause contents are not
 exported by this inspection.
@@ -262,8 +282,9 @@ exported by this inspection.
 Call-tree analysis loads and builds SSA once per analysis session, then lazily
 builds and reuses its VTA graph across root queries. Reachable calls are traversed
 iteratively with cached function descriptions, preserving depth-first ordering
-without a recursive walk. DOT exports stream nodes and calls with identity
-indexes and compact context-arrow grouping, rather than copying the analysis graph.
+without a recursive walk. Context IDs use the same loaded SSA and call graph;
+there is no second package load. DOT exports use compact identity indexes and
+retain detailed findings in JSON.
 
 This is a local development tool, not an unbounded analysis service. Loading,
 type-checking, SSA construction, and VTA can still require substantial memory
@@ -341,7 +362,7 @@ example-api/
 
  ## Current Status
 
- CodeBound is currently **`v0.1.4-nightly.3`**.
+ CodeBound is currently **`v0.1.4-nightly.4`**.
 
  ### Available
 
@@ -351,7 +372,8 @@ example-api/
  - CLI-based project initialization
 - Interactive project initialization with native Huh controls and Lip Gloss styling
 - Go call-tree analysis with interface/callback targets and architecture annotations
-- Local browser graph viewer and DOT/JSON export
+- Context creation-site IDs, call-argument propagation, and lifecycle/cancellation evidence
+- Zoomable, pannable local browser graph viewer and DOT/JSON export
 - Interactive action menu, automatic entry-point discovery, and a root selector
 
  ### Planned

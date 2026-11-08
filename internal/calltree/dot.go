@@ -6,19 +6,11 @@ import (
 	"io"
 )
 
-type functionID struct {
-	name, pkg, file string
-	line            int
-}
-
 type dotCallID struct {
 	from, to         int
 	throughInterface bool
 	violation        string
-}
-
-func (f Function) id() functionID {
-	return functionID{f.Name, f.Package, f.File, f.Line}
+	contextLabel     string
 }
 
 // WriteDOT streams nodes and call edges, using identity indexes to combine
@@ -52,12 +44,9 @@ func WriteDOT(writer io.Writer, graph *Graph) error {
 	}
 	writtenCalls := make(map[dotCallID]bool)
 	for _, call := range graph.Calls {
-		label := call.Violation
-		if label == "" && call.ThroughInterface {
-			label = "interface"
-		}
+		label := contextCallLabel(call)
 		from, to := ids[call.Caller.id()], ids[call.Callee.id()]
-		key := dotCallID{from: from, to: to, throughInterface: call.ThroughInterface, violation: call.Violation}
+		key := dotCallID{from: from, to: to, throughInterface: call.ThroughInterface, violation: call.Violation, contextLabel: label}
 		if writtenCalls[key] {
 			continue
 		}
@@ -85,6 +74,9 @@ func functionLabel(function Function) string {
 	label := fmt.Sprintf("%s\n%s\n%s:%d", function.Name, function.Package, function.File, function.Line)
 	if function.Layer != "" {
 		label += "\n" + function.Layer
+	}
+	for _, summary := range contextFunctionSummary(function.Context) {
+		label += "\n" + summary
 	}
 	return label
 }

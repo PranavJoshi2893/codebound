@@ -106,7 +106,7 @@ func consume(ctx context.Context) {}
 	if err := WriteDOT(&dot, graph); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`label="ctx\ncontext input"`, "timeout: 5s", `observes Done`, "[deferred]", "[goroutine]"} {
+	for _, expected := range []string{`ctx: C2`, "timeout: 5s", `observes Done`, "[deferred]", "[goroutine]"} {
 		if !strings.Contains(dot.String(), expected) {
 			t.Errorf("missing %q in DOT output", expected)
 		}
@@ -199,9 +199,16 @@ func Run(ctx context.Context) {
 	if !captured || !local {
 		t.Fatal("a shadowed closure parameter must not be mistaken for the outer context")
 	}
-	dot := contextDOTOutput(t, graph)
-	if strings.Count(dot, `\ncontext input"`) != 2 {
-		t.Fatal("outer and shadowed closure parameters must have separate context nodes")
+	var capturedIDs, localIDs []string
+	for _, operation := range graph.Root.Context.Operations {
+		if operation.Kind == "observe" && operation.Context == "parameter ctx" {
+			capturedIDs = operation.IDs
+		} else if operation.Kind == "observe" && strings.HasPrefix(operation.Context, "parameter ctx (closure at ") {
+			localIDs = operation.IDs
+		}
+	}
+	if !reflect.DeepEqual(capturedIDs, []string{"I1"}) || !reflect.DeepEqual(localIDs, []string{"C1"}) {
+		t.Fatalf("outer and shadowed closure parameters must retain distinct origins: %v and %v", capturedIDs, localIDs)
 	}
 }
 

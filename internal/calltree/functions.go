@@ -8,6 +8,21 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
+type analyzedFunction struct {
+	description Function
+	contexts    *contextInspector
+}
+
+func (a *Analysis) analyzeFunction(function *ssa.Function) analyzedFunction {
+	description := a.describeFunction(function)
+	contexts := a.inspectContexts(function)
+	if contexts != nil {
+		contexts.owner = description.id()
+		description.Context = &contexts.info
+	}
+	return analyzedFunction{description: description, contexts: contexts}
+}
+
 func (a *Analysis) findFunction(name string) (*ssa.Function, error) {
 	var match *ssa.Function
 	for function := range a.functions {
@@ -54,7 +69,6 @@ func (a *Analysis) describeFunction(function *ssa.Function) Function {
 		File:    file,
 		Line:    position.Line,
 		Layer:   inferLayer(function.Pkg.Pkg.Path(), file),
-		Context: a.inspectContexts(function),
 	}
 }
 

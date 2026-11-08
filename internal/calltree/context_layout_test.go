@@ -176,5 +176,23 @@ func contextLayoutFixture() *Graph {
 		Parameters: []string{"ctx"},
 		Operations: []ContextOperation{{Kind: "read", Context: "parameter ctx", Target: "context.Context.Err", Location: "main.go:26:1"}},
 	}}
-	return &Graph{Root: main, Calls: []Call{{Caller: main, Callee: run}, {Caller: run, Callee: consume}, {Caller: run, Callee: consume}}}
+	ids := map[string][]string{
+		"background": {"C1"}, "signal": {"C2"}, "parameter ctx": {"C2"},
+		"child": {"C3"}, "shutdown background": {"C4"}, "shutdown": {"C5"},
+	}
+	for _, function := range []Function{main, run, consume} {
+		for index := range function.Context.Operations {
+			operation := &function.Context.Operations[index]
+			operation.IDs = ids[operation.Context]
+			operation.ParentIDs = ids[operation.Parent]
+		}
+	}
+	run.Context.Bindings = []ContextBinding{{Parameter: "ctx", IDs: []string{"C2"}}}
+	consume.Context.Bindings = []ContextBinding{{Parameter: "ctx", IDs: []string{"C3", "C5"}}}
+	consume.Context.Operations[0].IDs = []string{"C3", "C5"}
+	return &Graph{Root: main, Calls: []Call{
+		{Caller: main, Callee: run, Contexts: []ContextBinding{{Parameter: "ctx", IDs: []string{"C2"}}}},
+		{Caller: run, Callee: consume, Contexts: []ContextBinding{{Parameter: "ctx", IDs: []string{"C3"}}}, Execution: "goroutine"},
+		{Caller: run, Callee: consume, Contexts: []ContextBinding{{Parameter: "ctx", IDs: []string{"C5"}}}},
+	}}
 }

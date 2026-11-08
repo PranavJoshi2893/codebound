@@ -21,7 +21,7 @@ with the structure you define.
 
 Run without arguments in a terminal to create a project or view a call tree,
 or use create <project-name> for non-interactive creation.`,
-	Version: "0.1.4-nightly.3",
+	Version: "0.1.4-nightly.4",
 	Args:    cobra.NoArgs,
 	RunE:    interactiveOrHelp,
 }

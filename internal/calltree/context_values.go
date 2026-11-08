@@ -161,7 +161,8 @@ func (i *contextInspector) valueSources(value ssa.Value) []ssa.Value {
 
 func (i *contextInspector) contextOrigin(value ssa.Value) string {
 	var origins []string
-	for _, source := range i.valueSources(value) {
+	sources := i.valueSources(value)
+	for _, source := range sources {
 		switch source := source.(type) {
 		case *ssa.Parameter:
 			origin := "parameter " + source.Name()
@@ -194,13 +195,16 @@ func (i *contextInspector) contextOrigin(value ssa.Value) string {
 			origins = append(origins, "unresolved")
 		}
 	}
-	return joinContextOrigins(origins)
+	origin := joinContextOrigins(origins)
+	i.origins[origin] = sources
+	return origin
 }
 
 func (i *contextInspector) cancelledContext(value ssa.Value) (string, bool) {
 	known := isContextNamedType(value.Type(), "CancelFunc") || isContextNamedType(value.Type(), "CancelCauseFunc")
 	var origins []string
-	for _, source := range i.valueSources(value) {
+	sources := i.valueSources(value)
+	for _, source := range sources {
 		if extract, ok := source.(*ssa.Extract); ok && extract.Index == 1 {
 			if call, ok := extract.Tuple.(*ssa.Call); ok {
 				if _, kind := contextConstructor(call.Common()); kind == "derive" {
@@ -212,7 +216,11 @@ func (i *contextInspector) cancelledContext(value ssa.Value) (string, bool) {
 		}
 		origins = append(origins, "unresolved")
 	}
-	return joinContextOrigins(origins), known
+	origin := joinContextOrigins(origins)
+	if known {
+		i.origins[origin] = sources
+	}
+	return origin, known
 }
 
 func (i *contextInspector) createdContext(call *ssa.CallCommon, position token.Pos) string {

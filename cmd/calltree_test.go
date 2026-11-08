@@ -70,7 +70,7 @@ func consume(ctx context.Context) { _ = ctx.Err() }
 				t.Fatal(err)
 			}
 			if format == "dot" {
-				for _, expected := range []string{`label="creates"`, `label="cancels [deferred]"`, `label="ctx\ncontext input"`, `label="receives\nreads Err"`} {
+				for _, expected := range []string{`starts C2: WithCancel`, `cancel/stop C2 [deferred]`, `ctx: C2`, `reads Err: C2`, `label="ctx=C2"`} {
 					if !strings.Contains(output.String(), expected) {
 						t.Errorf("missing %q in context DOT export", expected)
 					}
