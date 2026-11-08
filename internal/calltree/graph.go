@@ -55,6 +55,15 @@ type ContextOperation struct {
 	ParentUnresolved bool     `json:"parent_unresolved,omitempty"`
 }
 
+func (operation ContextOperation) createsContext() bool {
+	switch operation.Kind {
+	case "create", "derive", "detach":
+		return true
+	default:
+		return false
+	}
+}
+
 type Call struct {
 	Caller           Function         `json:"caller"`
 	Callee           Function         `json:"callee"`

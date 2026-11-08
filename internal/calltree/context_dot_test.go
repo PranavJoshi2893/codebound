@@ -78,18 +78,23 @@ func TestHybridViewPropagatesWriterErrors(t *testing.T) {
 }
 
 func TestLifecycleDoesNotClaimInertParentCanCancel(t *testing.T) {
-	markers := []contextMarker{
-		{operation: ContextOperation{Target: "context.Background", IDs: []string{"C1"}}},
-		{operation: ContextOperation{Target: "context.WithValue", IDs: []string{"C2"}, ParentIDs: []string{"C1"}}},
-		{operation: ContextOperation{Target: "context.WithoutCancel", IDs: []string{"C3"}, ParentIDs: []string{"I1"}}},
+	operations := []*ContextOperation{
+		{Target: "context.Background", IDs: []string{"C1"}},
+		{Target: "context.WithValue", IDs: []string{"C2"}, ParentIDs: []string{"C1"}},
+		{Target: "context.WithoutCancel", IDs: []string{"C3"}, ParentIDs: []string{"I1"}},
+		{ParentIDs: []string{"C1"}},
+		{ParentIDs: []string{"C2"}},
+		{ParentIDs: []string{"C3"}},
+		{ParentIDs: []string{"I1"}},
 	}
 	byID := map[string]int{"C1": 0, "C2": 1, "C3": 2}
-	for _, parent := range []string{"C1", "C2", "C3"} {
-		if contextParentMayCancel(ContextOperation{ParentIDs: []string{parent}}, markers, byID) {
-			t.Errorf("inert parent %s must not be advertised as a cancellation condition", parent)
+	parents := contextParentCancellation(operations, byID)
+	for index := 3; index < 6; index++ {
+		if parents[index] {
+			t.Errorf("inert parent %s must not be advertised as a cancellation condition", operations[index].ParentIDs[0])
 		}
 	}
-	if !contextParentMayCancel(ContextOperation{ParentIDs: []string{"I1"}}, markers, byID) {
+	if !parents[6] {
 		t.Fatal("outside-tree parent cancellation cannot be ruled out")
 	}
 }

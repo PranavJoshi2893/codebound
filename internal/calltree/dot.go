@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"strings"
 )
 
 type dotCallID struct {
@@ -75,8 +76,20 @@ func functionLabel(function Function) string {
 	if function.Layer != "" {
 		label += "\n" + function.Layer
 	}
-	for _, summary := range contextFunctionSummary(function.Context) {
-		label += "\n" + summary
+	summaries := contextFunctionSummary(function.Context)
+	if len(summaries) == 0 {
+		return label
 	}
-	return label
+	length := len(label)
+	for _, summary := range summaries {
+		length += 1 + len(summary)
+	}
+	var output strings.Builder
+	output.Grow(length)
+	output.WriteString(label)
+	for _, summary := range summaries {
+		output.WriteByte('\n')
+		output.WriteString(summary)
+	}
+	return output.String()
 }

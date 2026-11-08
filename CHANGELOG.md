@@ -5,6 +5,17 @@ All notable changes to CodeBound will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and this project adheres to [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+- Compile local context expressions once per query and propagate bindings through a dependency worklist instead of repeatedly rescanning every call rule.
+- Compute inherited cancellation once for all lifecycle sites; separate lifecycle reasoning, label formatting, value sets, and DOT output.
+- Build large function labels linearly and remove redundant checks and temporary assignments without changing JSON findings.
+- Add reverse-order flow and deep-parent benchmarks, solver-equivalence tests, and reproducible Makefile checks. Build the entire root package and limit clean to its own binary.
+
+### Removed
+- Unused Cobra starter `--toggle` / `-t` flag.
+
 ## [v0.1.4-nightly.4] - 2026-11-08
 
 ### Added

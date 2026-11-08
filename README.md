@@ -263,7 +263,9 @@ closure declarations alone do not prove invocation.
 
 This is a conservative source inspection, not a runtime context trace. It follows
 local aliases, branch merges, and captured variables, then propagates possible
-source IDs across supported calls until the bindings stop changing. Shared
+source IDs across supported calls until the bindings stop changing. Local SSA
+expressions are compiled once per query; a dependency worklist revisits only
+rules affected by changed parameter bindings. Shared
 callees can receive several possible IDs, while individual call arrows retain
 their argument bindings. Recursive calls are supported without inventing new
 creations for parameters. Origins through fields, globals, custom wrapper
@@ -284,7 +286,9 @@ builds and reuses its VTA graph across root queries. Reachable calls are travers
 iteratively with cached function descriptions, preserving depth-first ordering
 without a recursive walk. Context IDs use the same loaded SSA and call graph;
 there is no second package load. DOT exports use compact identity indexes and
-retain detailed findings in JSON.
+retain detailed findings in JSON. Lifecycle cancellation inheritance is computed
+once across the creation graph rather than re-walking each ancestor chain, and
+large function labels are assembled in linear time.
 
 This is a local development tool, not an unbounded analysis service. Loading,
 type-checking, SSA construction, and VTA can still require substantial memory
@@ -301,6 +305,10 @@ Run the synthetic 10,000-edge DOT and loaded 1,000-function-chain benchmarks:
 ```sh
 go test ./internal/calltree -run '^$' -bench . -benchmem
 ```
+
+The benchmark suite also includes forward/reverse context-flow chains and deep
+`WithValue` parent chains. These synthetic cases isolate solver and lifecycle
+scaling; they are not a promise of whole-project CLI performance.
 
 The loaded-analysis benchmark excludes source loading and SSA construction; it
 does not measure first-run CLI latency. Benchmark allocation totals are not peak
@@ -420,6 +428,12 @@ Run the checks with:
 go test ./...
 go vet ./...
 ```
+
+The Makefile also provides `make check`, `make test-race`, `make test-browser`,
+`make bench`, and `make deadcode`. The dead-code check uses a pinned Go tool and
+includes tests; it does not automatically delete exported APIs or reflective
+callbacks. Context-flow orchestration, the dependency solver, lifecycle reasoning,
+and presentation live in separate focused files inside `internal/calltree/`.
 
 When Graphviz JSON output is available, tests also check rendered context-label
 positions for overlapping text.

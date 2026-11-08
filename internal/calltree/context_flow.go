@@ -3,7 +3,6 @@ package calltree
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/ssa"
@@ -19,11 +18,6 @@ type contextSourceID struct {
 	origin string
 }
 
-type contextIDs struct {
-	ids        map[string]bool
-	unresolved bool
-}
-
 type contextArgument struct {
 	parameter *ssa.Parameter
 	value     ssa.Value
@@ -33,11 +27,12 @@ type contextArgument struct {
 // This pass connects existing local findings through actual SSA call arguments.
 // It never uses function-name matching or treats a parameter as a new creation.
 type contextFlow struct {
-	sources    map[contextSourceID]string
-	parameters map[*ssa.Parameter]*contextIDs
-	arguments  []contextArgument
-	functions  []*ssa.Function
-	owners     map[*ssa.Function]*contextInspector
+	sources     map[contextSourceID]string
+	parameters  map[*ssa.Parameter]*contextIDs
+	arguments   []contextArgument
+	functions   []*ssa.Function
+	owners      map[*ssa.Function]*contextInspector
+	expressions map[contextValueID]contextExpression
 }
 
 func annotateContextFlow(ctx context.Context, callGraph *callgraph.Graph, graph *Graph, descriptions map[*ssa.Function]analyzedFunction, order []*ssa.Function, calls []contextCall) error {
@@ -66,18 +61,14 @@ func newContextFlow(descriptions map[*ssa.Function]analyzedFunction, order []*ss
 			continue
 		}
 		flow.registerFunction(function, info.contexts)
-		for index := range info.contexts.info.Operations {
-			operation := &info.contexts.info.Operations[index]
-			if operation.Kind != "create" && operation.Kind != "derive" && operation.Kind != "detach" {
+		for _, operation := range info.contexts.info.Operations {
+			if !operation.createsContext() {
 				continue
 			}
 			key := contextSourceID{owner: info.description.id(), origin: operation.Context}
-			id := flow.sources[key]
-			if id == "" {
-				id = fmt.Sprintf("C%d", len(flow.sources)+1)
-				flow.sources[key] = id
+			if _, exists := flow.sources[key]; !exists {
+				flow.sources[key] = fmt.Sprintf("C%d", len(flow.sources)+1)
 			}
-			operation.IDs = []string{id}
 		}
 	}
 	return flow
@@ -107,17 +98,22 @@ func (flow *contextFlow) collectArguments(callGraph *callgraph.Graph) {
 }
 
 func (flow *contextFlow) solve(ctx context.Context) error {
-	if err := flow.propagate(ctx); err != nil {
+	propagation, err := flow.compileArguments(ctx)
+	if err != nil {
+		return err
+	}
+	if err := propagation.run(ctx); err != nil {
 		return err
 	}
 	// A cycle or an unsupported invocation may have no known starting value.
 	// Mark that uncertainty, then carry it through downstream calls too.
-	for _, values := range flow.parameters {
+	for parameter, values := range flow.parameters {
 		if len(values.ids) == 0 && !values.unresolved {
 			values.unresolved = true
+			propagation.enqueueDependents(parameter)
 		}
 	}
-	return flow.propagate(ctx)
+	return propagation.run(ctx)
 }
 
 func (flow *contextFlow) annotateFunctions(descriptions map[*ssa.Function]analyzedFunction, order []*ssa.Function) {
@@ -209,25 +205,6 @@ func contextArguments(edge *callgraph.Edge) []ssa.Value {
 	return call.Args
 }
 
-func (flow *contextFlow) propagate(ctx context.Context) error {
-	for changed := true; changed; {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		changed = false
-		for _, argument := range flow.arguments {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			values := flow.resolveValue(argument.inspector, argument.value)
-			if flow.parameters[argument.parameter].merge(values) {
-				changed = true
-			}
-		}
-	}
-	return nil
-}
-
 func (flow *contextFlow) resolveOrigin(inspector *contextInspector, origin string) contextIDs {
 	if id := flow.sources[contextSourceID{owner: inspector.owner, origin: origin}]; id != "" {
 		return contextIDs{ids: map[string]bool{id: true}}
@@ -236,69 +213,9 @@ func (flow *contextFlow) resolveOrigin(inspector *contextInspector, origin strin
 	if !exists {
 		return contextIDs{unresolved: true}
 	}
-	return flow.resolveSources(inspector, sources)
+	return flow.compileSources(inspector, sources).evaluate(flow.parameters)
 }
 
 func (flow *contextFlow) resolveValue(inspector *contextInspector, value ssa.Value) contextIDs {
-	if value == nil {
-		return contextIDs{unresolved: true}
-	}
-	return flow.resolveSources(inspector, inspector.valueSources(value))
-}
-
-func (flow *contextFlow) resolveSources(inspector *contextInspector, sources []ssa.Value) contextIDs {
-	result := contextIDs{ids: make(map[string]bool), unresolved: len(sources) == 0}
-	owner := inspector.owner
-	for _, source := range sources {
-		if parameter, ok := source.(*ssa.Parameter); ok {
-			if values := flow.parameters[parameter]; values != nil {
-				result.merge(*values)
-				continue
-			}
-		}
-		call, ok := source.(*ssa.Call)
-		if extract, isExtract := source.(*ssa.Extract); isExtract && (extract.Index == 0 || extract.Index == 1) {
-			call, ok = extract.Tuple.(*ssa.Call)
-		}
-		if ok {
-			origin := inspector.createdContext(call.Common(), call.Pos())
-			if id := flow.sources[contextSourceID{owner: owner, origin: origin}]; id != "" {
-				result.ids[id] = true
-				continue
-			}
-		}
-		result.unresolved = true
-	}
-	return result
-}
-
-func (values *contextIDs) merge(other contextIDs) bool {
-	changed := false
-	if other.unresolved && !values.unresolved {
-		values.unresolved, changed = true, true
-	}
-	for id := range other.ids {
-		if !values.ids[id] {
-			values.ids[id], changed = true, true
-		}
-	}
-	return changed
-}
-
-func (values contextIDs) names() []string {
-	var names []string
-	for id := range values.ids {
-		names = append(names, id)
-	}
-	sort.Slice(names, func(i, j int) bool {
-		if names[i][0] == names[j][0] && len(names[i]) != len(names[j]) {
-			return len(names[i]) < len(names[j])
-		}
-		return names[i] < names[j]
-	})
-	return names
-}
-
-func (values contextIDs) binding(parameter string) ContextBinding {
-	return ContextBinding{Parameter: parameter, IDs: values.names(), Unresolved: values.unresolved || len(values.ids) == 0}
+	return flow.valueExpression(inspector, value).evaluate(flow.parameters)
 }

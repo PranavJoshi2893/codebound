@@ -24,4 +24,7 @@ func TestRootWithoutTerminalShowsHelp(t *testing.T) {
 	if !strings.Contains(output.String(), "Available Commands:") {
 		t.Fatalf("expected help without a terminal, got %q", output.String())
 	}
+	if rootCmd.Flags().Lookup("toggle") != nil || strings.Contains(output.String(), "--toggle") {
+		t.Fatal("root help must not advertise the unused Cobra starter flag")
+	}
 }
