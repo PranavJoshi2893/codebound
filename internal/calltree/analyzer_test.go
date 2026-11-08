@@ -76,6 +76,99 @@ func Do() { repository.Get() }
 	}
 }
 
+func TestAnalyzeSignalCleanupDoesNotCallMain(t *testing.T) {
+	dir := fixture(t, map[string]string{"main.go": `package main
+import (
+ "context"
+ "os/signal"
+ "syscall"
+)
+func main() {
+ _, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+ defer stop()
+ run()
+}
+func run() {}
+`})
+	graph, err := New(dir).Analyze(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// stop and main both have type func(), but stop never points to main.
+	// The only displayed call should be the explicit call to run.
+	if len(graph.Calls) != 1 || graph.Calls[0].Caller.Name != "main" || graph.Calls[0].Callee.Name != "run" {
+		t.Fatalf("expected only main -> run, got %+v", graph.Calls)
+	}
+}
+
+func TestAnalyzeCallbackTargets(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		source string
+		want   []string
+	}{
+		{
+			name: "passed as an argument",
+			source: `package main
+func main() { execute(task) }
+func execute(callback func()) { callback() }
+func task() {}
+func unrelated() {}
+`,
+			want: []string{"main -> execute", "execute -> task"},
+		},
+		{
+			name: "returned for deferred cleanup",
+			source: `package main
+func main() { stop := cleanup(); defer stop() }
+func cleanup() func() { return task }
+func task() {}
+func unrelated() {}
+`,
+			want: []string{"main -> cleanup", "main -> task"},
+		},
+		{
+			name: "both branches remain possible",
+			source: `package main
+func main() { callback := choose(true); callback() }
+func choose(first bool) func() {
+ if first { return taskA }
+ return taskB
+}
+func taskA() {}
+func taskB() {}
+func unrelated() {}
+`,
+			want: []string{"main -> choose", "main -> taskA", "main -> taskB"},
+		},
+		{
+			name: "real recursion through a callback",
+			source: `package main
+var callback func()
+func init() { callback = main }
+func main() { callback() }
+func unrelated() {}
+`,
+			want: []string{"main -> main"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := fixture(t, map[string]string{"main.go": tt.source})
+			graph, err := New(dir).Analyze(context.Background(), "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, call := range graph.Calls {
+				got = append(got, call.Caller.Name+" -> "+call.Callee.Name)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAnalysisReusesCallGraph(t *testing.T) {
 	dir := fixture(t, map[string]string{"main.go": "package main\nfunc main() { task() }\nfunc task() {}\n"})
 	analysis, err := New(dir).Load(context.Background())

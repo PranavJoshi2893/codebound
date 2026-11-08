@@ -2,23 +2,22 @@ package calltree
 
 import (
 	"context"
-	"go/ast"
 	"go/token"
-	"path/filepath"
 	"sort"
 
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/ssa"
 )
 
+// A frame remembers the next call to visit for one function, avoiding recursion.
 type traversalFrame struct {
-	function *ssa.Function
-	edges    []*callgraph.Edge
-	next     int
+	function  *ssa.Function
+	edges     []*callgraph.Edge
+	nextIndex int
 }
 
-func collectCalls(ctx context.Context, program *ssa.Program, graph *callgraph.Graph, project map[string]bool, root *ssa.Function, dir string) (*Graph, error) {
-	result := &Graph{Root: describeFunction(program, root, dir), Calls: []Call{}}
+func (a *Analysis) collectCalls(ctx context.Context, graph *callgraph.Graph, root *ssa.Function) (*Graph, error) {
+	result := &Graph{Root: a.describeFunction(root), Calls: []Call{}}
 	// A cached description also marks a function as discovered. Each function
 	// is converted and expanded once, even when many callers share it.
 	descriptions := map[*ssa.Function]Function{root: result.Root}
@@ -28,22 +27,23 @@ func collectCalls(ctx context.Context, program *ssa.Program, graph *callgraph.Gr
 			return nil, err
 		}
 		frame := &stack[len(stack)-1]
-		if frame.next == len(frame.edges) {
+		edge, ok := frame.nextEdge()
+		if !ok {
 			stack[len(stack)-1] = traversalFrame{}
 			stack = stack[:len(stack)-1]
 			continue
 		}
-		edge := frame.edges[frame.next]
-		frame.next++
-		called := edge.Callee.Func
-		if _, ok := projectDeclaration(called, project); !ok {
+
+		calleeFunction := edge.Callee.Func
+		if _, ok := a.projectDeclaration(calleeFunction); !ok {
 			continue
 		}
-		callee, discovered := descriptions[called]
+		callee, discovered := descriptions[calleeFunction]
 		if !discovered {
-			callee = describeFunction(program, called, dir)
-			descriptions[called] = callee
+			callee = a.describeFunction(calleeFunction)
+			descriptions[calleeFunction] = callee
 		}
+
 		throughInterface := edge.Site != nil && edge.Site.Common().IsInvoke()
 		caller := descriptions[frame.function]
 		result.Calls = append(result.Calls, Call{
@@ -52,31 +52,28 @@ func collectCalls(ctx context.Context, program *ssa.Program, graph *callgraph.Gr
 			ThroughInterface: throughInterface,
 			Violation:        boundaryViolation(caller, callee, throughInterface),
 		})
+		// Keep calls to already discovered functions (including recursion),
+		// but do not expand their bodies again.
 		if !discovered {
-			stack = append(stack, traversalFrame{function: called, edges: sortedEdges(graph.Nodes[called])})
+			stack = append(stack, traversalFrame{
+				function: calleeFunction,
+				edges:    sortedEdges(graph.Nodes[calleeFunction]),
+			})
 		}
 	}
 	return result, nil
 }
 
-// Only projectDeclaration-checked functions reach this conversion.
-func describeFunction(program *ssa.Program, function *ssa.Function, dir string) Function {
-	declaration := function.Syntax().(*ast.FuncDecl)
-	position := program.Fset.Position(declaration.Pos())
-	file := position.Filename
-	if relative, err := filepath.Rel(dir, file); err == nil {
-		file = relative
+func (f *traversalFrame) nextEdge() (*callgraph.Edge, bool) {
+	if f.nextIndex == len(f.edges) {
+		return nil, false
 	}
-	result := Function{
-		Name:    functionName(declaration),
-		Package: function.Pkg.Pkg.Path(),
-		File:    file,
-		Line:    position.Line,
-	}
-	result.Layer = inferLayer(result.Package, result.File)
-	return result
+	edge := f.edges[f.nextIndex]
+	f.nextIndex++
+	return edge, true
 }
 
+// Preserve source order, with a stable tie-breaker for multiple possible targets.
 func sortedEdges(node *callgraph.Node) []*callgraph.Edge {
 	if node == nil {
 		return nil

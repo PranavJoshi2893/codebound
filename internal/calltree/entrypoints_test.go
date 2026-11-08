@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"golang.org/x/tools/go/callgraph"
 )
 
 func TestAutoRootForNestedMain(t *testing.T) {
@@ -60,5 +62,29 @@ func TestLibraryRequiresExplicitRoot(t *testing.T) {
 	}
 	if _, err := analyzer.Analyze(context.Background(), "Run"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInvalidRootsDoNotBuildCallGraph(t *testing.T) {
+	dir := fixture(t, map[string]string{
+		"cmd/api/main.go":    "package main\nfunc main() {}\n",
+		"cmd/worker/main.go": "package main\nfunc main() {}\n",
+	})
+	analyzer := New(dir)
+	analyzer.Pattern = "./..."
+	analysis, err := analyzer.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	analysis.callGraph = func() *callgraph.Graph {
+		t.Fatal("call graph should not be built until the root is resolved")
+		return nil
+	}
+
+	// Missing, ambiguous, and unspecified roots should fail before analysis.
+	for _, root := range []string{"Missing", "main", ""} {
+		if _, err := analysis.Analyze(context.Background(), root); err == nil {
+			t.Errorf("expected an error for root %q", root)
+		}
 	}
 }

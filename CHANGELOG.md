@@ -5,6 +5,14 @@ All notable changes to CodeBound will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and this project adheres to [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+- Organize call-tree loading, root selection, function descriptions, and traversal into focused methods with shared analysis state and simple return types.
+
+### Fixed
+- Replace signature-only CHA callback targets with value-flow-based VTA analysis to avoid false self-calls such as `main → main` from `defer stop()`, while preserving genuine recursion.
+
 ## [v0.1.4-nightly.3] - 2026-11-07
 
 ### Added

@@ -3,10 +3,59 @@ package calltree
 import (
 	"fmt"
 	"go/ast"
+	"path/filepath"
 
-	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 )
+
+func (a *Analysis) findFunction(name string) (*ssa.Function, error) {
+	var match *ssa.Function
+	for function := range a.functions {
+		declaration, ok := a.projectDeclaration(function)
+		if !ok {
+			continue
+		}
+		shortName := functionName(declaration)
+		if name != shortName && name != function.Pkg.Pkg.Path()+"."+shortName {
+			continue
+		}
+		if match != nil {
+			return nil, fmt.Errorf("function %q is ambiguous; use a package-qualified name", name)
+		}
+		match = function
+	}
+	if match == nil {
+		return nil, fmt.Errorf("function %q not found", name)
+	}
+	return match, nil
+}
+
+// Anonymous functions, synthetic wrappers, and dependency functions are not
+// displayed. A false result means "not displayed", not an analysis failure.
+func (a *Analysis) projectDeclaration(function *ssa.Function) (*ast.FuncDecl, bool) {
+	if function == nil || function.Pkg == nil || !a.projectPackages[function.Pkg.Pkg.Path()] {
+		return nil, false
+	}
+	declaration, ok := function.Syntax().(*ast.FuncDecl)
+	return declaration, ok
+}
+
+// Only projectDeclaration-checked functions reach this conversion.
+func (a *Analysis) describeFunction(function *ssa.Function) Function {
+	declaration := function.Syntax().(*ast.FuncDecl)
+	position := a.program.Fset.Position(declaration.Pos())
+	file := position.Filename
+	if relative, err := filepath.Rel(a.dir, file); err == nil {
+		file = relative
+	}
+	return Function{
+		Name:    functionName(declaration),
+		Package: function.Pkg.Pkg.Path(),
+		File:    file,
+		Line:    position.Line,
+		Layer:   inferLayer(function.Pkg.Pkg.Path(), file),
+	}
+}
 
 func functionName(function *ast.FuncDecl) string {
 	if function.Recv == nil {
@@ -27,51 +76,4 @@ func functionName(function *ast.FuncDecl) string {
 			return function.Name.Name
 		}
 	}
-}
-
-func projectPackages(loaded []*packages.Package) map[string]bool {
-	modules := make(map[string]bool)
-	for _, pkg := range loaded {
-		if pkg.Module != nil {
-			modules[pkg.Module.Path] = true
-		}
-	}
-	project := make(map[string]bool)
-	packages.Visit(loaded, func(pkg *packages.Package) bool {
-		if pkg.Module != nil && modules[pkg.Module.Path] {
-			project[pkg.PkgPath] = true
-		}
-		return true
-	}, nil)
-	return project
-}
-
-func projectDeclaration(function *ssa.Function, project map[string]bool) (*ast.FuncDecl, bool) {
-	if function == nil || function.Pkg == nil || !project[function.Pkg.Pkg.Path()] {
-		return nil, false
-	}
-	declaration, ok := function.Syntax().(*ast.FuncDecl)
-	return declaration, ok
-}
-
-func findFunction(functions map[*ssa.Function]bool, project map[string]bool, name string) (*ssa.Function, error) {
-	var match *ssa.Function
-	for function := range functions {
-		declaration, ok := projectDeclaration(function, project)
-		if !ok {
-			continue
-		}
-		shortName := functionName(declaration)
-		if name != shortName && name != function.Pkg.Pkg.Path()+"."+shortName {
-			continue
-		}
-		if match != nil {
-			return nil, fmt.Errorf("function %q is ambiguous; use a package-qualified name", name)
-		}
-		match = function
-	}
-	if match == nil {
-		return nil, fmt.Errorf("function %q not found", name)
-	}
-	return match, nil
 }

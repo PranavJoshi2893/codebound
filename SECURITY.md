@@ -47,7 +47,7 @@ reviewed and updated separately.
 ## Analysis and dependency checks
 
 Analyze trusted Go projects only. Package loading invokes the Go toolchain and
-may download dependencies. SSA/CHA analysis is not sandboxed and can consume
+may download dependencies. SSA/VTA analysis is not sandboxed and can consume
 substantial CPU and memory on large or adversarial inputs. Renderer limits are
 not operating-system memory limits or a sandbox.
 

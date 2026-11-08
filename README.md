@@ -156,9 +156,38 @@ dependencies must type-check under the active Go environment and build tags.
 
 The graph includes reachable named function and method declarations in the
 loaded modules. External-library nodes, anonymous function bodies, and synthetic
-SSA wrappers are not displayed. It uses conservative class hierarchy analysis
-(CHA), so interface and callback edges represent possible targets, not a runtime
-trace or proof that a call happens.
+SSA wrappers are not displayed. It uses Variable Type Analysis (VTA) to narrow
+down callback and interface targets. These edges still represent possible calls,
+not a runtime trace or proof that a call happens. Reflection and `unsafe` can
+limit accuracy.
+
+#### How the call tree works
+
+1. **Read the source.** Load and type-check the selected Go packages and their
+   dependencies.
+2. **Build an analysis-friendly representation.** Convert the source into SSA
+   (Static Single Assignment), a form that makes value assignments easier to track.
+3. **Find possible calls.** Direct calls such as `run()` identify their target
+   immediately. For callbacks and interface methods, VTA follows which function
+   values and concrete types can reach the call site.
+4. **Show the project graph.** Starting at the selected root (usually `main`),
+   follow calls to named project functions, annotate architecture boundaries, and
+   export the result to the browser, DOT, or JSON.
+
+For example, the generated project contains:
+
+```go
+ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+defer stop()
+err := run(ctx)
+```
+
+Both `stop` and `main` have the signature `func()`, but that does **not** mean
+`stop` can call `main`. The old Class Hierarchy Analysis (CHA) matched callback
+targets by signature, creating a false `main → main` arrow. VTA tracks where
+`stop` comes from instead, removing that false arrow while preserving genuine
+recursive calls. It does not run your application and may still include targets
+from branches that are never taken at runtime.
 
 Naming-based architecture checks annotate calls in every output format:
 
@@ -172,13 +201,13 @@ Naming-based architecture checks annotate calls in every output format:
 ### Large projects and performance
 
 Call-tree analysis loads and builds SSA once per analysis session, then lazily
-builds and reuses its CHA graph across root queries. Reachable calls are traversed
+builds and reuses its VTA graph across root queries. Reachable calls are traversed
 iteratively with cached function descriptions, preserving depth-first ordering
 without a recursive walk. DOT exports stream to the writer without constructing
 a duplicate collection of nodes and edges.
 
 This is a local development tool, not an unbounded analysis service. Loading,
-type-checking, SSA construction, and CHA can still require substantial memory
+type-checking, SSA construction, and VTA can still require substantial memory
 and time. The result graph remains in memory. For large repositories, narrow the
 scope with `--pattern` and use DOT/JSON instead of the browser view if renderer
 limits are exceeded:
@@ -301,7 +330,7 @@ example-api/
 - `internal/tui/`: form, presentation, and answer collection only; no filesystem creation or Cobra dependency.
 - `internal/project/`: shared options, validation, and project-creation entry point; no Cobra or Charm dependency.
 - `internal/scaffold/`: existing generators and embedded templates, reused by both entry paths.
-- `internal/calltree/`: package loading, SSA/CHA analysis, graph data, architecture checks, and DOT encoding; no Cobra, HTTP, or Graphviz process dependency.
+- `internal/calltree/`: package loading, SSA/VTA analysis, graph data, architecture checks, and DOT encoding; no Cobra, HTTP, or Graphviz process dependency.
 - `internal/calltree/viewer/`: Graphviz SVG rendering and a local HTTP viewer with context-driven shutdown; no Cobra dependency.
 
 Run the checks with:
