@@ -2,6 +2,7 @@ package calltree
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -76,5 +77,28 @@ func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write fa
 func TestDOTReturnsWriteErrors(t *testing.T) {
 	if err := WriteDOT(failingWriter{}, &Graph{}); err == nil {
 		t.Fatal("writer error was ignored")
+	}
+}
+
+func TestDOTCombinesRepeatedCallsOnlyInDisplay(t *testing.T) {
+	root := Function{Name: "Run", Package: "app"}
+	callee := Function{Name: "Task", Package: "app"}
+	direct := Call{Caller: root, Callee: callee}
+	throughInterface := direct
+	throughInterface.ThroughInterface = true
+	violation := direct
+	violation.Violation = "architecture violation"
+	graph := &Graph{Root: root, Calls: []Call{direct, direct, throughInterface, throughInterface, violation, violation}}
+	before, _ := json.Marshal(graph)
+	dot := contextDOTOutput(t, graph)
+	after, _ := json.Marshal(graph)
+	if strings.Count(dot, "  n0 -> n1") != 3 {
+		t.Fatal("duplicate calls should collapse, but interface and violation edges must stay distinct")
+	}
+	if strings.Count(dot, "  n0 -> n1;") != 1 || !strings.Contains(dot, "splines=polyline;") {
+		t.Fatal("ordinary repeated calls should use one polygonal connector")
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("display grouping changed JSON analysis data")
 	}
 }

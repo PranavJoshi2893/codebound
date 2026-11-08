@@ -13,6 +13,21 @@ type contextDOTNode struct {
 	source, scope, location string
 }
 
+// Group only arrows with identical endpoints, direction, and cancellation kind.
+// Red cancellation arrows must remain separate from ordinary context flow.
+type contextDOTArrowID struct {
+	from, to     string
+	cancellation bool
+}
+
+type contextDOTArrow struct {
+	id          contextDOTArrowID
+	labels      []string
+	details     []string
+	seenLabels  map[string]bool
+	seenDetails map[string]bool
+}
+
 type contextDOT struct {
 	output       io.Writer
 	functions    map[functionID]int
@@ -20,6 +35,8 @@ type contextDOT struct {
 	contexts     map[contextDOTNode]string
 	otherTargets map[contextDOTNode]string
 	written      []bool
+	arrows       []contextDOTArrow
+	arrowIDs     map[contextDOTArrowID]int
 }
 
 func writeContextDOT(output io.Writer, graph *Graph, functions map[functionID]int) error {
@@ -42,6 +59,7 @@ func writeContextDOT(output io.Writer, graph *Graph, functions map[functionID]in
 		output: output, functions: functions,
 		targets: make(map[string]int), contexts: make(map[contextDOTNode]string),
 		otherTargets: make(map[contextDOTNode]string), written: make([]bool, len(functions)),
+		arrowIDs: make(map[contextDOTArrowID]int),
 	}
 	// Index targets before drawing arrows, including calls to functions that
 	// appear later in the depth-first call tree.
@@ -60,6 +78,9 @@ func writeContextDOT(output io.Writer, graph *Graph, functions map[functionID]in
 		if err := renderer.writeFunction(call.Callee); err != nil {
 			return err
 		}
+	}
+	if err := renderer.writeArrows(); err != nil {
+		return err
 	}
 	if len(renderer.contexts) > 0 {
 		_, err := fmt.Fprintln(output, `  graph [label="Solid arrows: function calls | dashed arrows: context flow", labelloc=b, fontsize=10];`)
@@ -97,9 +118,7 @@ func (d *contextDOT) writeFunction(function Function) error {
 		if err != nil {
 			return err
 		}
-		if err := d.arrow(node, functionNode, "receives", "Context parameter: "+parameter, false); err != nil {
-			return err
-		}
+		d.addArrow(node, functionNode, "receives", "Context parameter: "+parameter, false)
 	}
 	// Register all creation sites first, so references inside closures and
 	// branch merges can reuse a context even if it is mentioned earlier.
@@ -129,9 +148,7 @@ func (d *contextDOT) writeOperation(function Function, operation ContextOperatio
 	details := contextOperationDetails(operation)
 	switch operation.Kind {
 	case "create", "derive", "detach":
-		if err := d.arrow(functionNode, contextNode, contextArrowLabel("creates", operation), details, false); err != nil {
-			return err
-		}
+		d.addArrow(functionNode, contextNode, contextArrowLabel("creates", operation), details, false)
 		if operation.Parent != "" {
 			parent, err := d.sourceNode(function, operation.Parent, operation.Scope, operation.Location)
 			if err != nil {
@@ -141,7 +158,7 @@ func (d *contextDOT) writeOperation(function Function, operation ContextOperatio
 			if operation.Kind == "detach" {
 				label = "values only\nno cancellation/deadline"
 			}
-			return d.arrow(parent, contextNode, label, details, false)
+			d.addArrow(parent, contextNode, label, details, false)
 		}
 	case "forward":
 		target, err := d.targetNode(function, operation)
@@ -149,17 +166,17 @@ func (d *contextDOT) writeOperation(function Function, operation ContextOperatio
 			return err
 		}
 		label := contextArrowLabel("passes context\nvia "+function.Name, operation)
-		return d.arrow(contextNode, target, label, details, false)
+		d.addArrow(contextNode, target, label, details, false)
 	case "read":
 		label := "reads " + strings.TrimPrefix(operation.Target, "context.Context.")
 		if operation.Target == "context.Context.Done" {
 			label = "gets Done channel"
 		}
-		return d.arrow(contextNode, functionNode, contextArrowLabel(label, operation), details, false)
+		d.addArrow(contextNode, functionNode, contextArrowLabel(label, operation), details, false)
 	case "observe":
-		return d.arrow(contextNode, functionNode, contextArrowLabel("observes Done", operation), details, false)
+		d.addArrow(contextNode, functionNode, contextArrowLabel("observes Done", operation), details, false)
 	case "cancel":
-		return d.arrow(functionNode, contextNode, contextArrowLabel("cancels", operation), details, true)
+		d.addArrow(functionNode, contextNode, contextArrowLabel("cancels", operation), details, true)
 	}
 	return nil
 }
@@ -221,15 +238,43 @@ func (d *contextDOT) targetNode(owner Function, operation ContextOperation) (str
 	return node, err
 }
 
-func (d *contextDOT) arrow(from, to, label, details string, cancellation bool) error {
-	color := "#2563eb"
-	if cancellation {
-		color = "#b91c1c"
+func (d *contextDOT) addArrow(from, to, label, details string, cancellation bool) {
+	id := contextDOTArrowID{from: from, to: to, cancellation: cancellation}
+	index, exists := d.arrowIDs[id]
+	if !exists {
+		index = len(d.arrows)
+		d.arrowIDs[id] = index
+		d.arrows = append(d.arrows, contextDOTArrow{
+			id: id, seenLabels: make(map[string]bool), seenDetails: make(map[string]bool),
+		})
 	}
-	// Context edges participate in rank/label placement, but weight zero lets
-	// ordinary function calls remain the primary layout guide.
-	_, err := fmt.Fprintf(d.output, "  %s -> %s [style=dashed, weight=0, color=%q, label=%q, fontsize=11, tooltip=%q];\n", from, to, color, label, details)
-	return err
+	arrow := &d.arrows[index]
+	if !arrow.seenLabels[label] {
+		arrow.seenLabels[label] = true
+		arrow.labels = append(arrow.labels, label)
+	}
+	if details != "" && !arrow.seenDetails[details] {
+		arrow.seenDetails[details] = true
+		arrow.details = append(arrow.details, details)
+	}
+}
+
+func (d *contextDOT) writeArrows() error {
+	for _, arrow := range d.arrows {
+		color := "#2563eb"
+		if arrow.id.cancellation {
+			color = "#b91c1c"
+		}
+		// Keep stable source order, unique visible actions, and all distinct
+		// source details, without drawing one parallel line per operation.
+		label := strings.Join(arrow.labels, "\n")
+		details := strings.Join(arrow.details, "\n\n")
+		_, err := fmt.Fprintf(d.output, "  %s -> %s [style=dashed, weight=0, color=%q, label=%q, fontsize=11, tooltip=%q];\n", arrow.id.from, arrow.id.to, color, label, details)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func contextNodeLabel(operation ContextOperation) string {

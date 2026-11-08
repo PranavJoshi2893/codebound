@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - Context usage annotations in JSON, DOT, and browser call trees: parameters, creation and parent origins, timeouts, forwarding, cancellation-channel receives, and cancellation calls, with closure scopes and explicit unresolved origins.
 
 ### Changed
+- Use polygonal graph connectors, combine parallel context actions into labeled arrows, and draw repeated equivalent function-call edges once without changing JSON findings.
 - Display contexts as separate nodes with labeled dashed arrows instead of placing context details inside function boxes; keep solid call arrows and full JSON findings.
 - Organize call-tree loading, root selection, function descriptions, and traversal into focused methods with shared analysis state and simple return types.
 

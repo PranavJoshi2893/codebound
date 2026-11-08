@@ -106,7 +106,7 @@ func consume(ctx context.Context) {}
 	if err := WriteDOT(&dot, graph); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{`label="ctx\ncontext input"`, "timeout: 5s", `label="observes Done"`, "[deferred]", "[goroutine]"} {
+	for _, expected := range []string{`label="ctx\ncontext input"`, "timeout: 5s", `observes Done`, "[deferred]", "[goroutine]"} {
 		if !strings.Contains(dot.String(), expected) {
 			t.Errorf("missing %q in DOT output", expected)
 		}

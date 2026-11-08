@@ -11,15 +11,21 @@ type functionID struct {
 	line            int
 }
 
+type dotCallID struct {
+	from, to         int
+	throughInterface bool
+	violation        string
+}
+
 func (f Function) id() functionID {
 	return functionID{f.Name, f.Package, f.File, f.Line}
 }
 
-// WriteDOT streams function calls and context relationships without building a
-// second graph. Function and context nodes keep separate identity indexes.
+// WriteDOT streams nodes and call edges, using identity indexes to combine
+// repeated relationships. The analysis graph and its JSON findings stay intact.
 func WriteDOT(writer io.Writer, graph *Graph) error {
 	output := bufio.NewWriter(writer)
-	if _, err := output.WriteString("digraph CallTree {\n  rankdir=TB;\n  node [shape=box];\n"); err != nil {
+	if _, err := output.WriteString("digraph CallTree {\n  rankdir=TB;\n  splines=polyline;\n  node [shape=box];\n"); err != nil {
 		return err
 	}
 	ids := make(map[functionID]int)
@@ -44,12 +50,18 @@ func WriteDOT(writer io.Writer, graph *Graph) error {
 			return err
 		}
 	}
+	writtenCalls := make(map[dotCallID]bool)
 	for _, call := range graph.Calls {
 		label := call.Violation
 		if label == "" && call.ThroughInterface {
 			label = "interface"
 		}
 		from, to := ids[call.Caller.id()], ids[call.Callee.id()]
+		key := dotCallID{from: from, to: to, throughInterface: call.ThroughInterface, violation: call.Violation}
+		if writtenCalls[key] {
+			continue
+		}
+		writtenCalls[key] = true
 		var err error
 		if label == "" {
 			_, err = fmt.Fprintf(output, "  n%d -> n%d;\n", from, to)

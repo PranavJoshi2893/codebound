@@ -38,13 +38,11 @@ func TestContextDOTDrawsSeparateNodesAndArrows(t *testing.T) {
 		`n0 -> c1 [style=dashed, weight=0, color="#b91c1c", label="cancels [deferred]"`,
 		`c1 -> n1 [style=dashed`,
 		`label="passes context\nvia main"`,
-		`c2 -> n1 [style=dashed, weight=0, color="#2563eb", label="receives"`,
+		`c2 -> n1 [style=dashed, weight=0, color="#2563eb", label="receives\nobserves Done\nreads Err"`,
 		`c2 -> c3 [style=dashed`,
 		`label="context.WithTimeout\ntimeout: 5s\nmain.go:11:1"`,
 		`c2 -> c4 [style=dashed`,
 		`label="values only\nno cancellation/deadline"`,
-		`label="observes Done"`,
-		`label="reads Err"`,
 		`Solid arrows: function calls | dashed arrows: context flow`,
 	} {
 		if !strings.Contains(dot, expected) {
@@ -137,6 +135,47 @@ func TestContextDOTPropagatesWriterErrors(t *testing.T) {
 	root := Function{Name: "Run", Context: &ContextInfo{Parameters: []string{"ctx"}}}
 	if err := writeContextDOT(failingWriter{}, &Graph{Root: root}, map[functionID]int{root.id(): 0}); err == nil {
 		t.Fatal("context node write errors must be returned")
+	}
+}
+
+func TestContextDOTCombinesParallelActionsWithoutChangingFindings(t *testing.T) {
+	root := Function{Name: "Run", Package: "app", Context: &ContextInfo{
+		Parameters: []string{"ctx"},
+		Operations: []ContextOperation{
+			{Kind: "read", Context: "parameter ctx", Target: "context.Context.Err", Location: "app.go:2:1"},
+			{Kind: "read", Context: "parameter ctx", Target: "context.Context.Err", Location: "app.go:3:1"},
+			{Kind: "observe", Context: "parameter ctx", Target: "context.Context.Done", Location: "app.go:4:1"},
+			{Kind: "read", Context: "parameter ctx", Target: "context.Context.Err", Scope: "goroutine closure at app.go:5:1", Location: "app.go:6:1"},
+			{Kind: "read", Context: "parameter ctx", Target: "context.Context.Err", Scope: "goroutine closure at app.go:7:1", Location: "app.go:8:1"},
+			{Kind: "derive", Context: "child", Parent: "parameter ctx", Target: "context.WithCancel", Location: "app.go:9:1"},
+			{Kind: "cancel", Context: "child", Target: "cancel", Execution: "deferred", Location: "app.go:10:1"},
+		},
+	}}
+	dot := contextDOTOutput(t, &Graph{Root: root})
+	if strings.Count(dot, "  c0 -> n0 [") != 1 {
+		t.Fatal("receiving, reading, and observing the same context should share one arrow")
+	}
+	if !strings.Contains(dot, `label="receives\nreads Err\nobserves Done\nreads Err [goroutine closure]"`) {
+		t.Fatal("grouped arrow must retain each distinct action and closure mode")
+	}
+	for _, location := range []string{"app.go:2:1", "app.go:3:1", "app.go:6:1", "app.go:8:1"} {
+		if !strings.Contains(dot, location) {
+			t.Errorf("lost source detail %q when grouping arrows", location)
+		}
+	}
+	if strings.Count(dot, "  n0 -> c1 [") != 2 {
+		t.Fatal("creation and cancellation must remain separate blue/red arrows")
+	}
+	if len(root.Context.Operations) != 7 {
+		t.Fatal("display grouping must not modify analysis findings")
+	}
+}
+
+func TestContextDOTGroupedArrowsPropagateWriterErrors(t *testing.T) {
+	renderer := contextDOT{output: failingWriter{}, arrowIDs: make(map[contextDOTArrowID]int)}
+	renderer.addArrow("c0", "n0", "receives", "parameter ctx", false)
+	if err := renderer.writeArrows(); err == nil {
+		t.Fatal("grouped arrow write errors must be returned")
 	}
 }
 

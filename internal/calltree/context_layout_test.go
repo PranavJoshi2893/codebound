@@ -13,31 +13,7 @@ import (
 // Check actual Graphviz text geometry, not just the exported DOT attributes.
 // The dense fixture reproduces overlapping labels on parallel context arrows.
 func TestContextLayoutKeepsTextSeparate(t *testing.T) {
-	dot, err := exec.LookPath("dot")
-	if err != nil {
-		t.Skip("Graphviz is required to check rendered label placement")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, dot, "-Tjson")
-	command.Stdin = strings.NewReader(contextDOTOutput(t, contextLayoutFixture()))
-	encoded, err := command.Output()
-	if err != nil {
-		if failure, ok := err.(*exec.ExitError); ok {
-			if strings.Contains(string(failure.Stderr), `Format: "json" not recognized`) {
-				t.Skip("Graphviz JSON output is required to check rendered text geometry")
-			}
-			t.Fatalf("render context layout: %v\n%s", err, failure.Stderr)
-		}
-		t.Fatalf("render context layout: %v", err)
-	}
-	var layout struct {
-		Objects []layoutDrawing `json:"objects"`
-		Edges   []layoutDrawing `json:"edges"`
-	}
-	if err := json.Unmarshal(encoded, &layout); err != nil {
-		t.Fatal(err)
-	}
+	layout := renderContextLayout(t, contextLayoutFixture())
 	var labels []layoutTextBounds
 	for _, drawing := range append(layout.Objects, layout.Edges...) {
 		labels = append(labels, drawing.textBounds()...)
@@ -56,7 +32,79 @@ func TestContextLayoutKeepsTextSeparate(t *testing.T) {
 	}
 }
 
+func TestContextLayoutUsesPolygonalConnectors(t *testing.T) {
+	layout := renderContextLayout(t, contextLayoutFixture())
+	segments := 0
+	for _, edge := range layout.Edges {
+		for _, path := range edge.Path {
+			if path.Op == "L" {
+				segments += len(path.Points) - 1
+				continue
+			}
+			if path.Op != "b" {
+				continue
+			}
+			// Graphviz also encodes straight segments as cubic Beziers. Their
+			// control points must lie on the segment, apart from rounding.
+			for index := 0; index+3 < len(path.Points); index += 3 {
+				start, end := path.Points[index], path.Points[index+3]
+				dx, dy := end[0]-start[0], end[1]-start[1]
+				length := math.Hypot(dx, dy)
+				if length == 0 {
+					continue
+				}
+				segments++
+				for _, control := range path.Points[index+1 : index+3] {
+					deviation := math.Abs((control[0]-start[0])*dy-(control[1]-start[1])*dx) / length
+					if deviation > 0.1 {
+						t.Errorf("connector contains a curved segment: control point is %.2f points off the line", deviation)
+					}
+				}
+			}
+		}
+	}
+	if segments == 0 {
+		t.Fatal("Graphviz did not return connector geometry")
+	}
+}
+
+type contextLayout struct {
+	Objects []layoutDrawing `json:"objects"`
+	Edges   []layoutDrawing `json:"edges"`
+}
+
+func renderContextLayout(t *testing.T, graph *Graph) contextLayout {
+	t.Helper()
+	dot, err := exec.LookPath("dot")
+	if err != nil {
+		t.Skip("Graphviz is required to check rendered label placement")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, dot, "-Tjson")
+	command.Stdin = strings.NewReader(contextDOTOutput(t, graph))
+	encoded, err := command.Output()
+	if err != nil {
+		if failure, ok := err.(*exec.ExitError); ok {
+			if strings.Contains(string(failure.Stderr), `Format: "json" not recognized`) {
+				t.Skip("Graphviz JSON output is required to check rendered text geometry")
+			}
+			t.Fatalf("render context layout: %v\n%s", err, failure.Stderr)
+		}
+		t.Fatalf("render context layout: %v", err)
+	}
+	var layout contextLayout
+	if err := json.Unmarshal(encoded, &layout); err != nil {
+		t.Fatal(err)
+	}
+	return layout
+}
+
 type layoutDrawing struct {
+	Path []struct {
+		Op     string       `json:"op"`
+		Points [][2]float64 `json:"points"`
+	} `json:"_draw_"`
 	Label []struct {
 		Op    string    `json:"op"`
 		Point []float64 `json:"pt"`

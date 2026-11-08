@@ -217,6 +217,11 @@ cancellation. Unresolved or missing origins use diamonds; targets not matched to
 function use separate notes labeled `unmatched context target`, rather than
 guessing a concrete destination.
 
+Connectors use straight segments with bends where needed to avoid nodes.
+Context actions with the same source, destination, and direction share one arrow
+with combined labels; cancellation remains a separate red arrow. Repeated
+equivalent function-call edges are drawn once. JSON retains all analysis entries.
+
 Full operation details remain in each function's optional `context` JSON field:
 
 | Finding | Meaning |
@@ -257,8 +262,8 @@ exported by this inspection.
 Call-tree analysis loads and builds SSA once per analysis session, then lazily
 builds and reuses its VTA graph across root queries. Reachable calls are traversed
 iteratively with cached function descriptions, preserving depth-first ordering
-without a recursive walk. DOT exports stream to the writer without constructing
-a duplicate collection of nodes and edges.
+without a recursive walk. DOT exports stream nodes and calls with identity
+indexes and compact context-arrow grouping, rather than copying the analysis graph.
 
 This is a local development tool, not an unbounded analysis service. Loading,
 type-checking, SSA construction, and VTA can still require substantial memory
