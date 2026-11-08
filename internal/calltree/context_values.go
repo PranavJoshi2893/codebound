@@ -164,7 +164,11 @@ func (i *contextInspector) contextOrigin(value ssa.Value) string {
 	for _, source := range i.valueSources(value) {
 		switch source := source.(type) {
 		case *ssa.Parameter:
-			origins = append(origins, "parameter "+source.Name())
+			origin := "parameter " + source.Name()
+			if source.Parent() != i.function {
+				origin += " (closure at " + i.location(source.Parent().Pos()) + ")"
+			}
+			origins = append(origins, origin)
 		case *ssa.Call:
 			if _, kind := contextConstructor(source.Common()); kind != "" {
 				origins = append(origins, i.createdContext(source.Common(), source.Pos()))

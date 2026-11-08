@@ -106,7 +106,7 @@ func consume(ctx context.Context) {}
 	if err := WriteDOT(&dot, graph); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"context inputs: ctx", "timeout: 5s", "observe:", "[deferred]", "[goroutine]"} {
+	for _, expected := range []string{`label="ctx\ncontext input"`, "timeout: 5s", `label="observes Done"`, "[deferred]", "[goroutine]"} {
 		if !strings.Contains(dot.String(), expected) {
 			t.Errorf("missing %q in DOT output", expected)
 		}
@@ -178,6 +178,31 @@ func Run(ctx context.Context) {
 		}
 	}
 	contextOperation(t, info, "observe", "context.Context.Done")
+}
+
+func TestContextClosureParametersKeepTheirOwnIdentity(t *testing.T) {
+	graph := analyzeContextFixture(t, `package app
+import "context"
+func Run(ctx context.Context) {
+ go func(ctx context.Context) { <-ctx.Done() }(context.Background())
+ go func() { <-ctx.Done() }()
+}
+`)
+	var captured, local bool
+	for _, operation := range graph.Root.Context.Operations {
+		if operation.Kind != "observe" {
+			continue
+		}
+		captured = captured || operation.Context == "parameter ctx"
+		local = local || strings.HasPrefix(operation.Context, "parameter ctx (closure at ")
+	}
+	if !captured || !local {
+		t.Fatal("a shadowed closure parameter must not be mistaken for the outer context")
+	}
+	dot := contextDOTOutput(t, graph)
+	if strings.Count(dot, `\ncontext input"`) != 2 {
+		t.Fatal("outer and shadowed closure parameters must have separate context nodes")
+	}
 }
 
 func TestContextConstructorsAndStatusReads(t *testing.T) {

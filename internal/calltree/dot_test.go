@@ -48,7 +48,7 @@ func TestDOTContextPreservesArchitectureLabels(t *testing.T) {
 	if err := WriteDOT(&output, graph); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"context inputs: ctx", `label="handler must not call repository"`} {
+	for _, expected := range []string{`label="ctx\ncontext input"`, `label="receives"`, `label="handler must not call repository"`} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("missing %q in %s", expected, output.String())
 		}

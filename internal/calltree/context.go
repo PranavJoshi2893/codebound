@@ -15,6 +15,7 @@ import (
 // separate root queries can safely run at the same time.
 type contextInspector struct {
 	analysis         *Analysis
+	function         *ssa.Function
 	info             ContextInfo
 	bindings         map[*ssa.FreeVar]ssa.Value
 	stores           map[ssa.Value][]ssa.Value
@@ -25,6 +26,7 @@ type contextInspector struct {
 func (a *Analysis) inspectContexts(function *ssa.Function) *ContextInfo {
 	inspector := contextInspector{
 		analysis:         a,
+		function:         function,
 		bindings:         make(map[*ssa.FreeVar]ssa.Value),
 		stores:           make(map[ssa.Value][]ssa.Value),
 		escaped:          make(map[ssa.Value]bool),

@@ -205,12 +205,23 @@ Naming-based architecture checks annotate calls in every output format:
 
 ### Context usage in the call tree
 
-Context findings appear automatically in browser/DOT node labels and in each
-function's optional `context` JSON field. No extra command or flag is required.
+Context findings appear automatically as **separate context nodes and dashed
+arrows** in the browser/DOT graph. Function boxes contain only function identity
+and architecture layer. Solid arrows remain function calls; dashed arrows show
+context relationships, with cancellation arrows in red. No extra flag is needed.
+
+Context inputs and creation sites use ellipses. Arrows are labeled `receives`,
+`creates`, `parent`, `passes context`, `reads`, `observes Done`, or `cancels`.
+`WithoutCancel` uses a `values only` parent arrow rather than implying inherited
+cancellation. Unresolved or missing origins use diamonds; targets not matched to a displayed
+function use separate notes labeled `unmatched context target`, rather than
+guessing a concrete destination.
+
+Full operation details remain in each function's optional `context` JSON field:
 
 | Finding | Meaning |
 | --- | --- |
-| `context inputs` | Parameters declared as `context.Context`, including type aliases |
+| `parameters` | Parameters declared as `context.Context`, including type aliases |
 | `create` | An independent `context.Background()` or `context.TODO()` |
 | `derive` | A child created with cancellation, timeout, deadline, values, or `signal.NotifyContext` |
 | `detach` | `context.WithoutCancel`: parent values remain, but cancellation and deadline are not inherited |
@@ -219,7 +230,8 @@ function's optional `context` JSON field. No extra command or flag is required.
 | `observe` | A channel receive or select receive case using a traced `Done()` channel |
 | `cancel` | A call to a cancellation function, with its originating context when known |
 
-Each operation includes a source location. Findings distinguish incoming
+Each JSON operation includes a source location; context creation nodes show their
+creation locations. Findings distinguish incoming
 parameters, derived children, and independent contexts; constant timeouts are
 shown as durations, while runtime values are labeled `dynamic`. Calls made with
 `defer` or `go` are labeled accordingly. Context facts inside anonymous functions
@@ -381,6 +393,9 @@ Run the checks with:
 go test ./...
 go vet ./...
 ```
+
+When Graphviz JSON output is available, tests also check rendered context-label
+positions for overlapping text.
 
 Optional browser interaction tests use headless Firefox under the viewer's real
 security policy. With `firefox` in `PATH`, run:

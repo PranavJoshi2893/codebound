@@ -12,9 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - Context usage annotations in JSON, DOT, and browser call trees: parameters, creation and parent origins, timeouts, forwarding, cancellation-channel receives, and cancellation calls, with closure scopes and explicit unresolved origins.
 
 ### Changed
+- Display contexts as separate nodes with labeled dashed arrows instead of placing context details inside function boxes; keep solid call arrows and full JSON findings.
 - Organize call-tree loading, root selection, function descriptions, and traversal into focused methods with shared analysis state and simple return types.
 
 ### Fixed
+- Let Graphviz reserve space for context arrow labels and nodes, avoiding crowded text from forced same-row layouts.
 - Replace signature-only CHA callback targets with value-flow-based VTA analysis to avoid false self-calls such as `main → main` from `defer stop()`, while preserving genuine recursion.
 
 ## [v0.1.4-nightly.3] - 2026-11-07

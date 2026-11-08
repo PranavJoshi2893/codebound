@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"strings"
 )
 
 type functionID struct {
@@ -16,8 +15,8 @@ func (f Function) id() functionID {
 	return functionID{f.Name, f.Package, f.File, f.Line}
 }
 
-// WriteDOT streams plain DOT with only a node-ID index, not a second graph of
-// copied nodes and edges. Ordering and quoting match the original exporter.
+// WriteDOT streams function calls and context relationships without building a
+// second graph. Function and context nodes keep separate identity indexes.
 func WriteDOT(writer io.Writer, graph *Graph) error {
 	output := bufio.NewWriter(writer)
 	if _, err := output.WriteString("digraph CallTree {\n  rankdir=TB;\n  node [shape=box];\n"); err != nil {
@@ -61,6 +60,9 @@ func WriteDOT(writer io.Writer, graph *Graph) error {
 			return err
 		}
 	}
+	if err := writeContextDOT(output, graph, ids); err != nil {
+		return err
+	}
 	if _, err := output.WriteString("}\n"); err != nil {
 		return err
 	}
@@ -71,38 +73,6 @@ func functionLabel(function Function) string {
 	label := fmt.Sprintf("%s\n%s\n%s:%d", function.Name, function.Package, function.File, function.Line)
 	if function.Layer != "" {
 		label += "\n" + function.Layer
-	}
-	if function.Context != nil {
-		if len(function.Context.Parameters) > 0 {
-			label += "\ncontext inputs: " + strings.Join(function.Context.Parameters, ", ")
-		}
-		for _, operation := range function.Context.Operations {
-			label += "\n" + contextOperationLabel(operation)
-		}
-	}
-	return label
-}
-
-func contextOperationLabel(operation ContextOperation) string {
-	label := operation.Kind + ": " + operation.Context
-	switch operation.Kind {
-	case "create", "derive", "detach":
-		if operation.Parent != "" {
-			label += " (parent: " + operation.Parent + ")"
-		}
-	case "forward":
-		label += " -> " + operation.Target
-	case "read", "observe":
-		label += " via " + operation.Target
-	}
-	if operation.Detail != "" {
-		label += " [" + operation.Detail + "]"
-	}
-	if operation.Execution != "" {
-		label += " [" + operation.Execution + "]"
-	}
-	if operation.Scope != "" {
-		label += " [" + operation.Scope + "]"
 	}
 	return label
 }
