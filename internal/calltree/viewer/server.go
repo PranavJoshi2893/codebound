@@ -13,12 +13,20 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
+//go:embed viewer.js
+var viewerJS []byte
+
 func Handler(svg []byte) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		_, _ = writer.Write(indexHTML)
+	})
+	mux.HandleFunc("GET /viewer.js", func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		writer.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = writer.Write(viewerJS)
 	})
 	mux.HandleFunc("GET /calltree.svg", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "image/svg+xml")
@@ -36,7 +44,7 @@ func protectLocalViewer(next http.Handler) http.Handler {
 		writer.Header().Set("Referrer-Policy", "no-referrer")
 		writer.Header().Set("X-Frame-Options", "DENY")
 		writer.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
-		writer.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		writer.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		host := request.Host
 		if name, _, err := net.SplitHostPort(host); err == nil {
 			host = name

@@ -49,6 +49,48 @@ func TestCalltreeExports(t *testing.T) {
 	}
 }
 
+func TestCalltreeContextExports(t *testing.T) {
+	dir := calltreeProject(t, map[string]string{"main.go": `package main
+import "context"
+func main() {
+ ctx, cancel := context.WithCancel(context.Background())
+ defer cancel()
+ consume(ctx)
+}
+func consume(ctx context.Context) { _ = ctx.Err() }
+`})
+	for _, format := range []string{"dot", "json"} {
+		t.Run(format, func(t *testing.T) {
+			var output bytes.Buffer
+			command := newCalltreeCommand()
+			command.SetOut(&output)
+			command.SetErr(&output)
+			command.SetArgs([]string{dir, "--format", format})
+			if err := command.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if format == "dot" {
+				for _, expected := range []string{"derive:", "cancel:", "context inputs: ctx", "context.Context.Err"} {
+					if !strings.Contains(output.String(), expected) {
+						t.Errorf("missing %q in context DOT export", expected)
+					}
+				}
+				return
+			}
+			var graph calltree.Graph
+			if err := json.Unmarshal(output.Bytes(), &graph); err != nil {
+				t.Fatal(err)
+			}
+			if graph.Root.Context == nil || len(graph.Root.Context.Operations) == 0 {
+				t.Fatal("missing root context metadata in JSON export")
+			}
+			if len(graph.Calls) != 1 || graph.Calls[0].Callee.Context == nil || len(graph.Calls[0].Callee.Context.Parameters) != 1 {
+				t.Fatalf("missing forwarded context parameter: %+v", graph.Calls)
+			}
+		})
+	}
+}
+
 func TestCalltreeRejectsInvalidFlags(t *testing.T) {
 	for _, args := range [][]string{
 		{"--format", "invalid"}, {"--port", "-1"}, {"--port", "65536"},

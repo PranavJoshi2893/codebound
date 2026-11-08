@@ -54,6 +54,7 @@ func (a *Analysis) describeFunction(function *ssa.Function) Function {
 		File:    file,
 		Line:    position.Line,
 		Layer:   inferLayer(function.Pkg.Pkg.Path(), file),
+		Context: a.inspectContexts(function),
 	}
 }
 

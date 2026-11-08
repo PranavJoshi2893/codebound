@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"strings"
 )
 
 type functionID struct {
@@ -70,6 +71,38 @@ func functionLabel(function Function) string {
 	label := fmt.Sprintf("%s\n%s\n%s:%d", function.Name, function.Package, function.File, function.Line)
 	if function.Layer != "" {
 		label += "\n" + function.Layer
+	}
+	if function.Context != nil {
+		if len(function.Context.Parameters) > 0 {
+			label += "\ncontext inputs: " + strings.Join(function.Context.Parameters, ", ")
+		}
+		for _, operation := range function.Context.Operations {
+			label += "\n" + contextOperationLabel(operation)
+		}
+	}
+	return label
+}
+
+func contextOperationLabel(operation ContextOperation) string {
+	label := operation.Kind + ": " + operation.Context
+	switch operation.Kind {
+	case "create", "derive", "detach":
+		if operation.Parent != "" {
+			label += " (parent: " + operation.Parent + ")"
+		}
+	case "forward":
+		label += " -> " + operation.Target
+	case "read", "observe":
+		label += " via " + operation.Target
+	}
+	if operation.Detail != "" {
+		label += " [" + operation.Detail + "]"
+	}
+	if operation.Execution != "" {
+		label += " [" + operation.Execution + "]"
+	}
+	if operation.Scope != "" {
+		label += " [" + operation.Scope + "]"
 	}
 	return label
 }

@@ -135,6 +135,11 @@ Open the printed local URL (the port is chosen automatically). Press `Ctrl+C`
 to stop the server. The browser view requires Graphviz's `dot` executable in
 `PATH`; the Go toolchain must also be installed to load and analyze packages.
 
+In the browser, use **+ / −** or the mouse wheel to zoom, and drag to pan.
+**Fit** restores the full graph. Keyboard shortcuts: **+ / −** to zoom,
+**arrow keys** to pan, and **0** or **Home** to fit. The displayed percentage is
+relative to the fitted graph; resizing the window fits the graph again.
+
 Export without Graphviz:
 
 ```sh
@@ -155,7 +160,7 @@ For ambiguous names, qualify the root, for example
 dependencies must type-check under the active Go environment and build tags.
 
 The graph includes reachable named function and method declarations in the
-loaded modules. External-library nodes, anonymous function bodies, and synthetic
+loaded modules. External-library nodes, anonymous-function nodes, and synthetic
 SSA wrappers are not displayed. It uses Variable Type Analysis (VTA) to narrow
 down callback and interface targets. These edges still represent possible calls,
 not a runtime trace or proof that a call happens. Reflection and `unsafe` can
@@ -197,6 +202,43 @@ Naming-based architecture checks annotate calls in every output format:
 - Unrecognized layers are left unclassified. Detection is heuristic, not a
   configurable architecture policy or an enforcement gate; findings do not
   change the command's exit status.
+
+### Context usage in the call tree
+
+Context findings appear automatically in browser/DOT node labels and in each
+function's optional `context` JSON field. No extra command or flag is required.
+
+| Finding | Meaning |
+| --- | --- |
+| `context inputs` | Parameters declared as `context.Context`, including type aliases |
+| `create` | An independent `context.Background()` or `context.TODO()` |
+| `derive` | A child created with cancellation, timeout, deadline, values, or `signal.NotifyContext` |
+| `detach` | `context.WithoutCancel`: parent values remain, but cancellation and deadline are not inherited |
+| `forward` | A context supplied to another call, including context-aware library APIs |
+| `read` | A call to `Done`, `Err`, `Deadline`, `Value`, or `context.Cause` |
+| `observe` | A channel receive or select receive case using a traced `Done()` channel |
+| `cancel` | A call to a cancellation function, with its originating context when known |
+
+Each operation includes a source location. Findings distinguish incoming
+parameters, derived children, and independent contexts; constant timeouts are
+shown as durations, while runtime values are labeled `dynamic`. Calls made with
+`defer` or `go` are labeled accordingly. Context facts inside anonymous functions
+are attached to the enclosing named function with a separate closure scope;
+closure declarations alone do not prove invocation.
+
+This is a local, conservative source inspection, not an end-to-end runtime
+context trace. It follows local aliases, branch merges, and captured variables.
+Parameters identify local inputs, and forwarding operations identify outgoing
+calls; it does not substitute caller values throughout every callee. Origins
+through fields, globals, custom wrapper returns, or unsupported indirect calls
+can remain `unresolved`. Escaping pointers add an unresolved possibility, and
+merged branches may list several origins. Unsupported usage can be omitted;
+absence of a finding is not proof of absence of context usage.
+
+Merely receiving a context, calling `Done()`, or having a receive case does not
+prove a function will stop on cancellation. No cancellation-compliance or leak
+verdict is issued. Context keys, values, and cancellation-cause contents are not
+exported by this inspection.
 
 ### Large projects and performance
 
@@ -338,6 +380,13 @@ Run the checks with:
 ```sh
 go test ./...
 go vet ./...
+```
+
+Optional browser interaction tests use headless Firefox under the viewer's real
+security policy. With `firefox` in `PATH`, run:
+
+```sh
+CODEBOUND_BROWSER_TESTS=1 go test ./internal/calltree/viewer -run TestBrowserGraphNavigation -count=1
 ```
 
  CodeBound is still in its early stages, and feedback is especially valuable right now.

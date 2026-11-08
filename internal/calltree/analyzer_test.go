@@ -187,7 +187,15 @@ func TestAnalysisReusesCallGraph(t *testing.T) {
 }
 
 func TestConcurrentQueriesShareLoadedAnalysis(t *testing.T) {
-	dir := fixture(t, map[string]string{"main.go": "package main\nfunc main() { task() }\nfunc task() {}\n"})
+	dir := fixture(t, map[string]string{"main.go": `package main
+import "context"
+func main() {
+ ctx, cancel := context.WithCancel(context.Background())
+ defer cancel()
+ task(ctx)
+}
+func task(ctx context.Context) { _ = ctx.Err() }
+`})
 	analysis, err := New(dir).Load(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -202,6 +210,9 @@ func TestConcurrentQueriesShareLoadedAnalysis(t *testing.T) {
 			graph, err := analysis.Analyze(context.Background(), "main")
 			if err == nil && len(graph.Calls) != 1 {
 				err = fmt.Errorf("unexpected call count: %d", len(graph.Calls))
+			}
+			if err == nil && (graph.Root.Context == nil || graph.Calls[0].Callee.Context == nil) {
+				err = errors.New("missing context facts in concurrent query")
 			}
 			results <- err
 		}()

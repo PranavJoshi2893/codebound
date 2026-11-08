@@ -28,12 +28,30 @@ func TestWriteDOT(t *testing.T) {
 
 func TestDOTQuotesUntrustedLabels(t *testing.T) {
 	root := Function{Name: "quoted\"name", Package: "app", File: "path\\with\ncontrols.go", Line: 1}
+	root.Context = &ContextInfo{Operations: []ContextOperation{{
+		Kind: "forward", Context: "quoted\"context", Target: "path\\with\ncontrols", Scope: "closure at quoted\"file",
+	}}}
 	var output bytes.Buffer
 	if err := WriteDOT(&output, &Graph{Root: root}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "label="+strconv.Quote(functionLabel(root))) {
 		t.Fatalf("label was not safely quoted: %s", output.String())
+	}
+}
+
+func TestDOTContextPreservesArchitectureLabels(t *testing.T) {
+	root := Function{Name: "Handle", Package: "app/handler", Layer: "handler", Context: &ContextInfo{Parameters: []string{"ctx"}}}
+	callee := Function{Name: "Get", Package: "app/repository", Layer: "repository"}
+	graph := &Graph{Root: root, Calls: []Call{{Caller: root, Callee: callee, Violation: "handler must not call repository"}}}
+	var output bytes.Buffer
+	if err := WriteDOT(&output, graph); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"context inputs: ctx", `label="handler must not call repository"`} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("missing %q in %s", expected, output.String())
+		}
 	}
 }
 

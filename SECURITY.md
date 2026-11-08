@@ -23,8 +23,9 @@ device files, or an attacker with the same operating-system privileges.
 - The CLI binds only to `127.0.0.1`, not a public interface.
 - The viewer requires a loopback Host header and rejects foreign Origin and
   cross-site browser requests to mitigate DNS rebinding and cross-site access.
-- Security headers disable caching, framing, active content, and external
-  resources. The page embeds SVG as an image rather than an active document.
+- Security headers disable caching, framing, inline scripts, object embeds, and
+  external resources. Zoom/pan uses a same-origin script only. The page embeds
+  SVG as an image rather than an active document.
 - HTTP header, read, write, idle, and graceful-shutdown timeouts are bounded.
 - Graphviz rendering is cancelled after 30 seconds. DOT input is limited to
   8 MiB, SVG output to 32 MiB, and diagnostics to 64 KiB.
