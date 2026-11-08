@@ -4,9 +4,12 @@ package viewer
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,15 +52,21 @@ func (b *limitedBuffer) Write(data []byte) (int, error) {
 
 // RenderSVG requires Graphviz's dot executable. DOT/JSON exports do not.
 func RenderSVG(ctx context.Context, graph *calltree.Graph) ([]byte, error) {
+	return renderViewSVG(ctx, calltree.IndexGraph(graph), calltree.BrowserOptions{Focus: -1})
+}
+
+func renderViewSVG(ctx context.Context, graph *calltree.IndexedGraph, options calltree.BrowserOptions) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, renderTimeout)
 	defer cancel()
 	dot := limitedBuffer{limit: maxDOTBytes}
 	svg := limitedBuffer{limit: maxSVGBytes}
 	stderr := limitedBuffer{limit: maxDiagnosticBytes}
-	if err := calltree.WriteDOT(&dot, graph); err != nil {
+	if err := graph.WriteBrowserDOT(&dot, options); err != nil {
 		return nil, fmt.Errorf("encode DOT: %w", err)
 	}
-	command := exec.CommandContext(ctx, "dot", "-Tsvg")
+	// Graphviz emits the SVG followed by its matching pixel-coordinate image map.
+	// Only rectangles and numeric function IDs are retained from that map.
+	command := exec.CommandContext(ctx, "dot", "-Tsvg", "-Tcmapx")
 	command.Stdin = bytes.NewReader(dot.Bytes())
 	command.Stdout = &svg
 	command.Stderr = &stderr
@@ -70,5 +79,71 @@ func RenderSVG(ctx context.Context, graph *calltree.Graph) ([]byte, error) {
 		}
 		return nil, fmt.Errorf("render graph with Graphviz (install dot or use --format dot/json): %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
+	return embedNodeMap(svg.Bytes())
+}
+
+type graphNode struct {
+	ID     int    `json:"id"`
+	Label  string `json:"label"`
+	Bounds [4]int `json:"bounds"`
+}
+
+func embedNodeMap(output []byte) ([]byte, error) {
+	end := bytes.LastIndex(output, []byte("</svg>"))
+	if end < 0 {
+		return nil, errors.New("Graphviz returned an invalid SVG")
+	}
+	var imageMap struct {
+		Areas []struct {
+			Shape  string `xml:"shape,attr"`
+			Href   string `xml:"href,attr"`
+			Title  string `xml:"title,attr"`
+			Coords string `xml:"coords,attr"`
+		} `xml:"area"`
+	}
+	mapXML := bytes.TrimSpace(output[end+len("</svg>"):])
+	// Some renderers/test stubs provide only SVG; it remains usable without hits.
+	if len(mapXML) == 0 {
+		return output, nil
+	}
+	if err := xml.Unmarshal(mapXML, &imageMap); err != nil {
+		return nil, fmt.Errorf("decode Graphviz node map: %w", err)
+	}
+	nodes := []graphNode{}
+	for _, area := range imageMap.Areas {
+		if area.Shape != "rect" || !strings.HasPrefix(area.Href, "function:") {
+			continue
+		}
+		id, err := strconv.Atoi(strings.TrimPrefix(area.Href, "function:"))
+		if err != nil || id < 0 {
+			return nil, errors.New("invalid function ID in Graphviz node map")
+		}
+		coords := strings.Split(area.Coords, ",")
+		if len(coords) != 4 {
+			return nil, errors.New("invalid rectangle in Graphviz node map")
+		}
+		node := graphNode{ID: id, Label: area.Title}
+		for index, coordinate := range coords {
+			node.Bounds[index], err = strconv.Atoi(strings.TrimSpace(coordinate))
+			if err != nil || node.Bounds[index] < 0 {
+				return nil, errors.New("invalid coordinates in Graphviz node map")
+			}
+		}
+		if node.Bounds[2] <= node.Bounds[0] || node.Bounds[3] <= node.Bounds[1] {
+			return nil, errors.New("empty rectangle in Graphviz node map")
+		}
+		nodes = append(nodes, node)
+	}
+	encoded, err := json.Marshal(nodes)
+	if err != nil {
+		return nil, err
+	}
+	var svg bytes.Buffer
+	svg.Write(output[:end])
+	svg.WriteString(`<metadata id="codebound-nodes">`)
+	if err := xml.EscapeText(&svg, encoded); err != nil {
+		return nil, err
+	}
+	svg.WriteString("</metadata></svg>")
 	return svg.Bytes(), nil
 }

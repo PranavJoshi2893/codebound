@@ -2,36 +2,66 @@ package viewer
 
 import (
 	"context"
-	_ "embed"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/PranavJoshi2893/codebound/internal/calltree"
 )
 
-//go:embed index.html
-var indexHTML []byte
-
-//go:embed viewer.js
-var viewerJS []byte
-
-func Handler(svg []byte) http.Handler {
+func Handler(svg []byte, graph *calltree.Graph) http.Handler {
+	index := calltree.IndexGraph(graph)
+	graphJSON, jsonError := json.Marshal(describeGraph(index))
+	views := newViewCache(func(ctx context.Context, options calltree.BrowserOptions) ([]byte, error) {
+		return renderViewSVG(ctx, index, options)
+	})
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		writer.Header().Set("X-Content-Type-Options", "nosniff")
-		_, _ = writer.Write(indexHTML)
-	})
-	mux.HandleFunc("GET /viewer.js", func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		writer.Header().Set("X-Content-Type-Options", "nosniff")
-		_, _ = writer.Write(viewerJS)
-	})
-	mux.HandleFunc("GET /calltree.svg", func(writer http.ResponseWriter, _ *http.Request) {
+	registerAssets(mux)
+	mux.HandleFunc("GET /calltree.svg", func(writer http.ResponseWriter, request *http.Request) {
+		options := calltree.BrowserOptions{Focus: -1}
+		switch request.URL.Query().Get("mode") {
+		case "", "calls":
+		case "contexts":
+			options.Contexts = true
+		default:
+			http.Error(writer, "invalid graph mode", http.StatusBadRequest)
+			return
+		}
+		if focus := request.URL.Query().Get("focus"); focus != "" {
+			id, err := strconv.Atoi(focus)
+			if err != nil || id < 0 || id >= len(index.Functions) {
+				http.Error(writer, "invalid graph focus", http.StatusBadRequest)
+				return
+			}
+			options.Focus = id
+		}
+		image := svg
+		if options.Contexts || options.Focus >= 0 {
+			if graph == nil {
+				http.Error(writer, "graph data unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			rendered, err := views.image(request.Context(), options)
+			if err != nil {
+				http.Error(writer, "could not render this graph view", http.StatusInternalServerError)
+				return
+			}
+			image = rendered
+		}
 		writer.Header().Set("Content-Type", "image/svg+xml")
-		writer.Header().Set("X-Content-Type-Options", "nosniff")
-		_, _ = writer.Write(svg)
+		_, _ = writer.Write(image)
+	})
+	mux.HandleFunc("GET /graph.json", func(writer http.ResponseWriter, _ *http.Request) {
+		if jsonError != nil {
+			http.Error(writer, "graph details unavailable", http.StatusInternalServerError)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = writer.Write(graphJSON)
 	})
 	return protectLocalViewer(mux)
 }
@@ -44,7 +74,8 @@ func protectLocalViewer(next http.Handler) http.Handler {
 		writer.Header().Set("Referrer-Policy", "no-referrer")
 		writer.Header().Set("X-Frame-Options", "DENY")
 		writer.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
-		writer.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		writer.Header().Set("X-Content-Type-Options", "nosniff")
+		writer.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' blob:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		host := request.Host
 		if name, _, err := net.SplitHostPort(host); err == nil {
 			host = name
@@ -65,12 +96,12 @@ func protectLocalViewer(next http.Handler) http.Handler {
 }
 
 // Serve owns listener and stops gracefully when ctx is cancelled.
-func Serve(ctx context.Context, listener net.Listener, svg []byte) error {
+func Serve(ctx context.Context, listener net.Listener, svg []byte, graph *calltree.Graph) error {
 	server := &http.Server{
-		Handler:           Handler(svg),
+		Handler:           Handler(svg, graph),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      renderTimeout + 5*time.Second,
 		IdleTimeout:       time.Minute,
 		MaxHeaderBytes:    16 << 10,
 	}

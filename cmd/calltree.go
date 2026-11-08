@@ -156,7 +156,7 @@ func serveCalltree(ctx context.Context, cmd *cobra.Command, graph *calltree.Grap
 	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Call graph: http://%s\nPress Ctrl+C to stop.\n", listener.Addr()); err != nil {
 		return err
 	}
-	return viewer.Serve(ctx, listener, svg)
+	return viewer.Serve(ctx, listener, svg, graph)
 }
 
 func init() {

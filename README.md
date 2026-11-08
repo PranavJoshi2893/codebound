@@ -136,9 +136,17 @@ to stop the server. The browser view requires Graphviz's `dot` executable in
 `PATH`; the Go toolchain must also be installed to load and analyze packages.
 
 In the browser, use **+ / −** or the mouse wheel to zoom, and drag to pan.
-**Fit** restores the full graph. Keyboard shortcuts: **+ / −** to zoom,
-**arrow keys** to pan, and **0** or **Home** to fit. The displayed percentage is
-relative to the fitted graph; resizing the window fits the graph again.
+**Fit graph** shows the full diagram without enlarging a small graph.
+**100% size** restores readable natural size. Keyboard shortcuts: **+ / −** to
+zoom, **arrow keys** to pan, **0** or **Home** to fit, and **1** for natural size.
+The percentage is absolute: **100% always means the same rendering scale**.
+Graph changes preserve zoom and the selected node's screen position. Resizing
+preserves manual zoom and the graph point at the center; after an explicit fit,
+resizing keeps that diagram fitted. Status/legend updates do not resize the
+center canvas. Large diagrams start at a readable root, not a tiny overview;
+use **Fit graph** or **Selected + neighbors** when needed.
+Boxes can grow when context text is revealed, but the diagram is not automatically
+rescaled to compensate.
 
 Export without Graphviz:
 
@@ -205,10 +213,36 @@ Naming-based architecture checks annotate calls in every output format:
 
 ### Context usage in the call tree
 
-The browser/DOT graph uses a **hybrid lifecycle view**: usage stays inside each
-function box, and existing call arrows carry the context IDs being passed.
+The DOT graph and the browser's **Calls + context** mode use a **hybrid lifecycle
+view**: usage stays inside each function box, and existing call arrows carry the
+context IDs being passed.
 Only context creation and derivation sites get separate lifecycle markers.
-No extra flag is needed.
+No extra CLI flag is needed; the browser starts with a simpler call-only map.
+
+The HTML viewer opens with a **Start here** reading guide and an arrow/context
+legend. Use **Explore functions** to search by name, package, or file, then read
+one function's callers, possible calls, and context actions in plain language.
+Select a caller or callee to continue exploring, or **Back to root** to restart.
+Source locations and expandable technical evidence remain available for deeper
+inspection.
+Large call/finding lists initially render 50 items with explicit **Show next**
+controls, so the dashboard stays responsive without discarding evidence.
+
+The **diagram itself starts with a simple call flow**: a blue **START HERE** root,
+compact function boxes, and arrows labeled **calls**, **starts goroutine**, or
+**defers call until return**. Dotted arrows identify possible interface targets;
+red arrows explicitly label naming-based architecture warnings. Full paths and
+verbose context findings do not crowd this initial view. These browser-only
+presentation changes do not alter DOT/JSON exports.
+
+Click a function directly in the diagram to select it (amber outline) and read its
+details. Choose **Selected + neighbors** to redraw just its direct callers and
+callees; click another node to keep following the flow. Hidden relationships are
+explicitly disclosed, so a focused view is not mistaken for the whole analysis.
+**Whole tree** restores the complete map. Choose **Calls + context** to reveal
+context bindings and lifecycle markers, including within a focused view. Context
+evidence is hidden, not discarded, in simple mode. Zoom and pan keep clickable
+node regions aligned with the graph; keyboard users can tab to and activate nodes.
 
 For example, a signal context can continue through the call tree without being
 drawn as a different context at every parameter:
@@ -290,6 +324,16 @@ retain detailed findings in JSON. Lifecycle cancellation inheritance is computed
 once across the creation graph rather than re-walking each ancestor chain, and
 large function labels are assembled in linear time.
 
+The browser server builds its root-first declaration/incident-call index once and reuses it
+for selections. Focused DOT generation visits the selected node's neighborhood,
+not the entire graph. DOT text is streamed using reusable buffers. Graph JSON is
+encoded once, while a byte-bounded LRU caches up to eight on-demand SVG views
+within a shared 32 MiB budget (in addition to the initial SVG). Only one Graphviz
+layout runs at a time, and slow HTTP clients do not hold the layout/cache lock.
+The initial image and click metadata use one request; image replacements are
+decoded before committing, and only metadata—not a second full SVG DOM—is parsed
+for selection. SVGs remain isolated images.
+
 This is a local development tool, not an unbounded analysis service. Loading,
 type-checking, SSA construction, and VTA can still require substantial memory
 and time. The result graph remains in memory. For large repositories, narrow the
@@ -303,12 +347,22 @@ codebound calltree . --pattern ./cmd/api --format json > calltree.json
 Run the synthetic 10,000-edge DOT and loaded 1,000-function-chain benchmarks:
 
 ```sh
-go test ./internal/calltree -run '^$' -bench . -benchmem
+go test ./internal/calltree/... -run '^$' -bench . -benchmem
 ```
 
 The benchmark suite also includes forward/reverse context-flow chains and deep
 `WithValue` parent chains. These synthetic cases isolate solver and lifecycle
 scaling; they are not a promise of whole-project CLI performance.
+
+`BenchmarkBrowserDOT` includes index construction; `BenchmarkIndexedBrowserDOT`
+measures repeated queries with that index already built, as used by the server.
+`BenchmarkGraphJSON` measures repeated HTTP responses after server setup.
+These exclude Graphviz layout and browser painting. For a local comparison on a
+synthetic 10,000-call chain, indexed focused DOT preparation fell from roughly
+14–22 ms / 8.6 MB to 5–21 µs / 4.4 KB per query. Whole-map preparation with the
+index reused took roughly 10–25 ms / 2.7 MB, versus 48–60 ms / 23 MB before this
+cleanup (including the old per-query indexing/copies). The index still has a
+one-time construction cost; these are not end-to-end CLI or render speedups.
 
 The loaded-analysis benchmark excludes source loading and SSA construction; it
 does not measure first-run CLI latency. Benchmark allocation totals are not peak
@@ -421,6 +475,8 @@ example-api/
 - `internal/scaffold/`: existing generators and embedded templates, reused by both entry paths.
 - `internal/calltree/`: package loading, SSA/VTA analysis, graph data, architecture checks, and DOT encoding; no Cobra, HTTP, or Graphviz process dependency.
 - `internal/calltree/viewer/`: Graphviz SVG rendering and a local HTTP viewer with context-driven shutdown; no Cobra dependency.
+- `internal/calltree/viewer/assets/`: embedded HTML/CSS and separate camera, graph-request, and text-explorer controllers; no frontend build pipeline or external assets.
+- `internal/calltree/viewer/testdata/`: browser-only test scripts, not served by the production viewer.
 
 Run the checks with:
 
@@ -430,9 +486,9 @@ go vet ./...
 ```
 
 The Makefile also provides `make check`, `make test-race`, `make test-browser`,
-`make bench`, and `make deadcode`. The dead-code check uses a pinned Go tool and
-includes tests; it does not automatically delete exported APIs or reflective
-callbacks. Context-flow orchestration, the dependency solver, lifecycle reasoning,
+`make test-browser-mobile`, `make bench`, and `make deadcode`. The dead-code check
+uses a pinned Go tool and includes tests; it does not automatically delete
+exported APIs or reflective callbacks. Context-flow orchestration, the dependency solver, lifecycle reasoning,
 and presentation live in separate focused files inside `internal/calltree/`.
 
 When Graphviz JSON output is available, tests also check rendered context-label
@@ -442,7 +498,8 @@ Optional browser interaction tests use headless Firefox under the viewer's real
 security policy. With `firefox` in `PATH`, run:
 
 ```sh
-CODEBOUND_BROWSER_TESTS=1 go test ./internal/calltree/viewer -run TestBrowserGraphNavigation -count=1
+make test-browser
+make test-browser-mobile
 ```
 
  CodeBound is still in its early stages, and feedback is especially valuable right now.

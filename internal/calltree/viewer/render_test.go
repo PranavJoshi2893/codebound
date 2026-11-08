@@ -2,9 +2,12 @@ package viewer
 
 import (
 	"context"
+	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -81,5 +84,60 @@ func TestMissingGraphviz(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if _, err := RenderSVG(context.Background(), &calltree.Graph{}); err == nil || !strings.Contains(err.Error(), "Graphviz") {
 		t.Fatalf("expected actionable missing-Graphviz error, got %v", err)
+	}
+}
+
+func TestNodeMapMetadata(t *testing.T) {
+	output := []byte(`<svg xmlns="http://www.w3.org/2000/svg"></svg><map><area shape="rect" href="function:3" title="Run &amp; &lt;source&gt;" coords="5,10,100,60"/><area shape="poly" href="ignored" coords="1,2,3,4"/></map>`)
+	svg, err := embedNodeMap(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := decodeNodeMetadata(t, svg)
+	if len(nodes) != 1 || nodes[0].ID != 3 || nodes[0].Label != "Run & <source>" || nodes[0].Bounds != [4]int{5, 10, 100, 60} {
+		t.Fatalf("incorrect node map: %+v", nodes)
+	}
+	for _, bad := range []string{
+		`<svg>`,
+		`<svg></svg><map><area shape="rect" href="function:-1" coords="1,2,3,4"/></map>`,
+		`<svg></svg><map><area shape="rect" href="function:0" coords="1,2,3"/></map>`,
+		`<svg></svg><map><area shape="rect" href="function:0" coords="1,no,3,4"/></map>`,
+		`<svg></svg><map><area shape="rect" href="function:0" coords="3,2,1,4"/></map>`,
+	} {
+		if _, err := embedNodeMap([]byte(bad)); err == nil {
+			t.Errorf("accepted malformed renderer output: %s", bad)
+		}
+	}
+}
+
+func decodeNodeMetadata(t *testing.T, svg []byte) []graphNode {
+	t.Helper()
+	var document struct {
+		Metadata string `xml:"metadata"`
+	}
+	if err := xml.Unmarshal(svg, &document); err != nil {
+		t.Fatal(err)
+	}
+	var nodes []graphNode
+	if err := json.Unmarshal([]byte(document.Metadata), &nodes); err != nil {
+		t.Fatal(err)
+	}
+	return nodes
+}
+
+func TestGraphvizSelectableNodes(t *testing.T) {
+	if _, err := exec.LookPath("dot"); err != nil {
+		t.Skip("Graphviz is not installed")
+	}
+	root := calltree.Function{Name: "main", Package: "example/app"}
+	leaf := calltree.Function{Name: "<source>", Package: "example/worker"}
+	graph := &calltree.Graph{Root: root, Calls: []calltree.Call{{Caller: root, Callee: leaf}}}
+	svg, err := RenderSVG(context.Background(), graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := decodeNodeMetadata(t, svg)
+	if len(nodes) != 2 || nodes[0].ID != 0 || nodes[1].ID != 1 || !strings.Contains(nodes[1].Label, "<source>") {
+		t.Fatalf("Graphviz lost selectable function identities: %+v", nodes)
 	}
 }

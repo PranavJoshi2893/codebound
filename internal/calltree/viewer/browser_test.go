@@ -5,6 +5,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,9 +13,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/PranavJoshi2893/codebound/internal/calltree"
 )
 
-//go:embed viewer_test.js
+//go:embed testdata/viewer_test.js
 var browserTests []byte
 
 // Run explicitly with CODEBOUND_BROWSER_TESTS=1. Firefox is only a test tool;
@@ -53,7 +56,34 @@ func TestBrowserGraphNavigation(t *testing.T) {
 		}
 		writer.WriteHeader(http.StatusNoContent)
 	})
-	mux.Handle("/", Handler([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200"><text x="50" y="50">Test graph</text></svg>`)))
+	root := calltree.Function{Name: "main", Package: "example", File: "main.go", Line: 1}
+	worker := calltree.Function{Name: "Worker.Run", Package: "example/worker", File: "worker.go", Line: 5,
+		Context: &calltree.ContextInfo{
+			Parameters: []string{"ctx"},
+			Bindings:   []calltree.ContextBinding{{Parameter: "ctx", IDs: []string{"C1", "I1"}, Unresolved: true}},
+			Operations: []calltree.ContextOperation{
+				{Kind: "observe", Target: "context.Context.Done", Context: "ctx", IDs: []string{"C1", "I1"}, Unresolved: true, Location: "worker.go:6"},
+				{Kind: "detach", Target: "context.WithoutCancel", Context: "detached", IDs: []string{"C2"}, ParentIDs: []string{"C1", "I1"}, ParentUnresolved: true, Location: "worker.go:7"},
+			},
+		}}
+	leaf := calltree.Function{Name: "<script>not markup</script>", Package: "example/repo", File: "repo.go", Line: 10}
+	for index := range 60 {
+		worker.Context.Operations = append(worker.Context.Operations, calltree.ContextOperation{
+			Kind: "read", Target: "context.Context.Err", Context: "ctx", IDs: []string{"C1"},
+			Location: fmt.Sprintf("worker.go:%d", index+10),
+		})
+	}
+	graph := &calltree.Graph{Root: root, Calls: []calltree.Call{
+		{Caller: root, Callee: worker, ThroughInterface: true, Execution: "goroutine", Contexts: []calltree.ContextBinding{{Parameter: "ctx", IDs: []string{"C1"}}}},
+		{Caller: worker, Callee: leaf, Violation: "example architecture warning"},
+		{Caller: worker, Callee: worker, Execution: "deferred"},
+	}}
+	graph.Calls = append(graph.Calls, graph.Calls[0]) // Repeated evidence is shown once in the UI.
+	svg, err := RenderSVG(context.Background(), graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux.Handle("/", Handler(svg, graph))
 	// Exercise the real page, script, and image under the production CSP.
 	server := httptest.NewServer(protectLocalViewer(mux))
 	defer server.Close()

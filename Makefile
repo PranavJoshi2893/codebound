@@ -1,6 +1,6 @@
 BINARY_NAME = codebound
 
-.PHONY: build run clean test vet check test-race test-browser bench deadcode
+.PHONY: build run clean test vet check test-race test-browser test-browser-mobile bench deadcode
 
 build:
 	@go build -o "bin/$(BINARY_NAME)" .
@@ -26,8 +26,11 @@ test-race:
 test-browser:
 	@CODEBOUND_BROWSER_TESTS=1 go test ./internal/calltree/viewer -run TestBrowserGraphNavigation -count=1
 
+test-browser-mobile:
+	@MOZ_HEADLESS_WIDTH=390 MOZ_HEADLESS_HEIGHT=844 CODEBOUND_BROWSER_TESTS=1 go test ./internal/calltree/viewer -run TestBrowserGraphNavigation -count=1
+
 bench:
-	@go test ./internal/calltree -run '^$$' -bench . -benchmem
+	@go test ./internal/calltree/... -run '^$$' -bench . -benchmem
 
 deadcode:
 	@go run golang.org/x/tools/cmd/deadcode@v0.52.0 -test ./...

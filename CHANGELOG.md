@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- Guided HTML calltree explorer with a plain-language reading guide, arrow/context legend, searchable functions, caller/callee navigation, and context explanations with expandable technical evidence.
+- Graph-first HTML navigation with a compact call-flow default, explicit root and action labels, selectable function boxes, architecture-warning/interface styling, on-demand context detail, and direct-neighbor focus views that disclose hidden relationships. DOT/JSON exports remain unchanged.
+
 ### Changed
+- Stabilize the graph canvas and switch to absolute natural-size zoom; preserve scale/selection across views and manual zoom on resize. Add explicit fit/readable-size controls and narrow-screen regression checks.
+- Separate embedded viewer assets and camera/graph/explorer controllers; remove duplicate initial SVG downloads, full-SVG DOM parsing, repeated per-selection call normalization, per-node event handlers, and the redundant in-SVG dashboard legend.
+- Reuse a compact graph/neighborhood index, stream browser DOT with typed buffered writes, pre-encode graph JSON, cache SVG views within bounded LRU limits, and release the rendering slot before HTTP writes. Add focused/whole-map, JSON, cache, and pagination checks/benchmarks; retain all analysis/export evidence.
 - Compile local context expressions once per query and propagate bindings through a dependency worklist instead of repeatedly rescanning every call rule.
 - Compute inherited cancellation once for all lifecycle sites; separate lifecycle reasoning, label formatting, value sets, and DOT output.
 - Build large function labels linearly and remove redundant checks and temporary assignments without changing JSON findings.

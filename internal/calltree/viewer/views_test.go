@@ -1,0 +1,98 @@
+package viewer
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
+	"testing"
+
+	"github.com/PranavJoshi2893/codebound/internal/calltree"
+)
+
+func TestViewCache(t *testing.T) {
+	renders := 0
+	cache := newViewCache(func(context.Context, calltree.BrowserOptions) ([]byte, error) {
+		renders++
+		return []byte("1234"), nil
+	})
+	cache.limit = 8
+	a, b, c := calltree.BrowserOptions{Focus: 0}, calltree.BrowserOptions{Focus: 1}, calltree.BrowserOptions{Focus: 2}
+	for _, options := range []calltree.BrowserOptions{a, b, a, c, a} {
+		if _, err := cache.image(context.Background(), options); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if renders != 3 || cache.bytes != 8 || cache.items[b] != nil || cache.recent.Len() != 2 {
+		t.Fatalf("cache must evict the least recently used view within its byte budget: renders=%d bytes=%d entries=%d", renders, cache.bytes, cache.recent.Len())
+	}
+	tooSmall := newViewCache(cache.render)
+	tooSmall.limit = 3
+	if _, err := tooSmall.image(context.Background(), b); err != nil {
+		t.Fatal(err)
+	}
+	if tooSmall.recent.Len() != 0 || tooSmall.bytes != 0 {
+		t.Fatal("oversized views must not be retained")
+	}
+}
+
+func TestViewCacheConcurrentRequestsAndCancellation(t *testing.T) {
+	var renders atomic.Int32
+	started, release := make(chan struct{}), make(chan struct{})
+	cache := newViewCache(func(context.Context, calltree.BrowserOptions) ([]byte, error) {
+		renders.Add(1)
+		close(started)
+		<-release
+		return []byte("svg"), nil
+	})
+	options := calltree.BrowserOptions{Focus: 1}
+	var group sync.WaitGroup
+	for range 8 {
+		group.Go(func() {
+			if _, err := cache.image(context.Background(), options); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	<-started
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := cache.image(ctx, options); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled requests must not wait for another layout: %v", err)
+	}
+	close(release)
+	group.Wait()
+	if renders.Load() != 1 {
+		t.Fatal("identical concurrent requests must share one layout")
+	}
+}
+
+func TestViewCacheDoesNotRetainFailures(t *testing.T) {
+	renders := 0
+	cache := newViewCache(func(context.Context, calltree.BrowserOptions) ([]byte, error) {
+		renders++
+		return nil, errors.New("renderer failed")
+	})
+	for range 2 {
+		if _, err := cache.image(context.Background(), calltree.BrowserOptions{}); err == nil {
+			t.Fatal("renderer failures must be returned")
+		}
+	}
+	if renders != 2 || cache.recent.Len() != 0 {
+		t.Fatal("failed renders must remain retryable")
+	}
+}
+
+func TestViewCacheEntryLimit(t *testing.T) {
+	cache := newViewCache(func(context.Context, calltree.BrowserOptions) ([]byte, error) {
+		return []byte("svg"), nil
+	})
+	for id := range maxCachedViews + 3 {
+		if _, err := cache.image(context.Background(), calltree.BrowserOptions{Focus: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if cache.recent.Len() != maxCachedViews || cache.bytes != maxCachedViews*3 {
+		t.Fatal("small views must still obey the entry-count bound")
+	}
+}

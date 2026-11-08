@@ -1,0 +1,75 @@
+package calltree
+
+// IndexedCall references immutable analysis evidence without copying its two
+// function descriptions. Indices are stable in root-first discovery order.
+type IndexedCall struct {
+	From, To int
+	Call     *Call
+}
+
+// IndexedGraph is a reusable presentation index. Build once after analysis and
+// do not mutate its source graph while it is in use.
+type IndexedGraph struct {
+	Functions []Function
+	Calls     []IndexedCall
+	graph     *Graph
+	offsets   []int
+	incident  []int
+	relations []int
+}
+
+// IndexGraph builds a root-first identity index and compact incident-call lists.
+// Reuse it for presentation queries instead of rebuilding it per selected node.
+func IndexGraph(graph *Graph) *IndexedGraph {
+	index := &IndexedGraph{graph: graph}
+	if graph == nil {
+		return index
+	}
+	ids := make(map[functionID]int)
+	add := func(function Function) int {
+		if id, exists := ids[function.id()]; exists {
+			return id
+		}
+		id := len(index.Functions)
+		ids[function.id()] = id
+		index.Functions = append(index.Functions, function)
+		return id
+	}
+	add(graph.Root)
+	index.Calls = make([]IndexedCall, len(graph.Calls))
+	for i := range graph.Calls {
+		call := &graph.Calls[i]
+		index.Calls[i] = IndexedCall{From: add(call.Caller), To: add(call.Callee), Call: call}
+	}
+	index.offsets = make([]int, len(index.Functions)+1)
+	index.relations = make([]int, len(index.Functions))
+	seen := make(map[[2]int]struct{})
+	for _, call := range index.Calls {
+		index.offsets[call.From+1]++
+		if call.From != call.To {
+			index.offsets[call.To+1]++
+		}
+		pair := [2]int{call.From, call.To}
+		if _, exists := seen[pair]; !exists {
+			seen[pair] = struct{}{}
+			index.relations[call.From]++
+			if call.From != call.To {
+				index.relations[call.To]++
+			}
+		}
+	}
+	for i := 1; i < len(index.offsets); i++ {
+		index.offsets[i] += index.offsets[i-1]
+	}
+	index.incident = make([]int, index.offsets[len(index.Functions)])
+	next := append([]int(nil), index.offsets[:len(index.Functions)]...)
+	for i, call := range index.Calls {
+		index.incident[next[call.From]] = i
+		next[call.From]++
+		if call.From != call.To {
+			index.incident[next[call.To]] = i
+			next[call.To]++
+		}
+	}
+	return index
+}
