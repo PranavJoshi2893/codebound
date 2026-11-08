@@ -53,10 +53,38 @@ select { font: inherit; padding: 0.4rem; margin-left: 0.25rem; max-width: 100%; 
 #graph:not([src]) { visibility: hidden; }
 .static-graph { width: 100%; height: 100%; object-fit: contain; }
 #graph-nodes { position: absolute; top: 0; left: 0; transform-origin: 0 0; pointer-events: none; }
-.graph-node-hit { position: absolute; min-width: 0; min-height: 0; padding: 0; border: 3px solid transparent; border-radius: 14px; background: transparent; pointer-events: auto; cursor: pointer; }
-.graph-node-hit:hover:not(:disabled) { background: #2563eb15; border-color: #2563eb; }
-.graph-node-hit[aria-pressed="true"] { border-color: #b45309; background: #f59e0b0d; }
-.graph-node-hit:focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
+/* The SVG owns the box border. Image-map rectangles are rounded to pixels and
+   must not trace a second, slightly misaligned contour over its rounded paths. */
+.graph-node-hit { position: absolute; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 14px; background: transparent; pointer-events: auto; cursor: pointer; color: #2563eb; }
+.graph-node-hit::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  pointer-events: none;
+  opacity: 0;
+  --corner-size: 12px;
+  background:
+    linear-gradient(currentColor, currentColor) left top / var(--corner-size) 3px no-repeat,
+    linear-gradient(currentColor, currentColor) left top / 3px var(--corner-size) no-repeat,
+    linear-gradient(currentColor, currentColor) right top / var(--corner-size) 3px no-repeat,
+    linear-gradient(currentColor, currentColor) right top / 3px var(--corner-size) no-repeat,
+    linear-gradient(currentColor, currentColor) left bottom / var(--corner-size) 3px no-repeat,
+    linear-gradient(currentColor, currentColor) left bottom / 3px var(--corner-size) no-repeat,
+    linear-gradient(currentColor, currentColor) right bottom / var(--corner-size) 3px no-repeat,
+    linear-gradient(currentColor, currentColor) right bottom / 3px var(--corner-size) no-repeat;
+}
+.graph-node-hit:hover:not(:disabled) { background: #2563eb15; }
+.graph-node-hit:hover:not(:disabled)::after,
+.graph-node-hit[aria-pressed="true"]::after,
+.graph-node-hit:focus-visible::after { opacity: 1; }
+.graph-node-hit[aria-pressed="true"],
+.graph-node-hit[aria-pressed="true"]:hover { color: #b45309; background: #f59e0b0d; }
+.graph-node-hit:focus-visible { outline: none; }
+.graph-node-hit:focus-visible::after { inset: -9px; --corner-size: 16px; }
+
+@media (forced-colors: active) {
+  .graph-node-hit:focus-visible { outline: 2px dashed Highlight; outline-offset: 6px; }
+}
 
 @media (max-width: 720px) {
   .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 30%) minmax(0, 1fr); }

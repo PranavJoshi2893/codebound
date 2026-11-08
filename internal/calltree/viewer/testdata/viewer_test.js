@@ -219,10 +219,40 @@
     zoomIn.click();
     check(nodeLayer.style.transform === graph.style.transform, "Clickable nodes must follow image zoom/pan exactly");
     const hit = nodeLayer.querySelector('[data-function-id="1"]');
+    const overlayStyle = getComputedStyle(hit);
+    const markerStyle = getComputedStyle(hit, "::after");
+    check(overlayStyle.borderTopWidth === "0px" && overlayStyle.borderRightWidth === "0px", "Click targets must not draw another border over the SVG box");
+    check(markerStyle.opacity === "1" && parseFloat(markerStyle.top) <= -6 && parseFloat(markerStyle.left) <= -6, "Selection markers must remain outside the original node border");
+    check(overlayStyle.color === "rgb(180, 83, 9)", "Selected markers must use the amber selection color");
+    check(markerStyle.pointerEvents === "none", "Selection markers must not intercept adjacent graph interactions");
+    // Exercise the real hover selectors/cascade without a browser automation
+    // dependency: a temporary class has the same specificity as :hover.
+    const hoverRules = [];
+    for (const sheet of document.styleSheets) {
+      for (const rule of sheet.cssRules) {
+        if (!rule.selectorText?.includes(".graph-node-hit") || !rule.selectorText.includes(":hover")) continue;
+        hoverRules.push([rule, rule.selectorText]);
+        rule.selectorText = rule.selectorText.replaceAll(":hover", ".test-hover");
+      }
+    }
+    try {
+      hit.classList.add("test-hover");
+      check(getComputedStyle(hit).color === "rgb(180, 83, 9)" && getComputedStyle(hit).borderTopWidth === "0px", "Hovering a selected node must keep amber markers without introducing another box border");
+    } finally {
+      hit.classList.remove("test-hover");
+      for (const [rule, selector] of hoverRules) rule.selectorText = selector;
+    }
+    hit.focus({ preventScroll: true });
+    check(document.activeElement === hit, "Graph nodes must remain keyboard-focusable");
+    if (hit.matches(":focus-visible")) {
+      check(getComputedStyle(hit).outlineStyle === "none", "Keyboard focus must not stack another outline on the SVG border");
+      check(parseFloat(getComputedStyle(hit, "::after").top) <= -9, "Keyboard focus needs its own visibly separated marker state");
+    }
     const imageBounds = graph.getBoundingClientRect();
     const hitBounds = hit.getBoundingClientRect();
     check(hitBounds.width > 0 && hitBounds.left >= imageBounds.left && hitBounds.right <= imageBounds.right + 1, "Graphviz hit regions must line up with the rendered image");
     passed.push("clickable graph nodes and synchronized highlights");
+    passed.push("single SVG border with separate selection/focus markers");
 
     async function changeView(control, value, count) {
       const previousSource = graph.src;

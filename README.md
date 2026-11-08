@@ -235,14 +235,16 @@ red arrows explicitly label naming-based architecture warnings. Full paths and
 verbose context findings do not crowd this initial view. These browser-only
 presentation changes do not alter DOT/JSON exports.
 
-Click a function directly in the diagram to select it (amber outline) and read its
-details. Choose **Selected + neighbors** to redraw just its direct callers and
+Click a function directly in the diagram to select it (amber corner markers) and
+read its details. Choose **Selected + neighbors** to redraw just its direct callers and
 callees; click another node to keep following the flow. Hidden relationships are
 explicitly disclosed, so a focused view is not mistaken for the whole analysis.
 **Whole tree** restores the complete map. Choose **Calls + context** to reveal
 context bindings and lifecycle markers, including within a focused view. Context
 evidence is hidden, not discarded, in simple mode. Zoom and pan keep clickable
 node regions aligned with the graph; keyboard users can tab to and activate nodes.
+Selection, hover, and keyboard focus use separated corner markers outside the
+SVG box, rather than drawing overlapping borders on its rounded outline.
 
 For example, a signal context can continue through the call tree without being
 drawn as a different context at every parameter:
