@@ -1,4 +1,4 @@
-# CodeBound `v0.1.4-nightly.4`
+# CodeBound `v0.1.4-nightly.5`
 
  **CodeBound is an opinionated Go CLI for scaffolding consistent project structures and building toward enforceable architectural boundaries.**
 
@@ -10,7 +10,7 @@
 codebound create example-api
 ```
 
- > **Prerelease Notice:** CodeBound is currently in **v0.1.4-nightly.4**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
+ > **Prerelease Notice:** CodeBound is currently in **v0.1.4-nightly.5**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
 
 ---
 
@@ -46,7 +46,7 @@ codebound create example-api
  Make sure you have [Go](<https://go.dev/>) installed, then install CodeBound:
 
 ```
-go install github.com/PranavJoshi2893/codebound@v0.1.4-nightly.4
+go install github.com/PranavJoshi2893/codebound@v0.1.4-nightly.5
 ```
 
  Verify the installation:
@@ -426,7 +426,7 @@ example-api/
 
  ## Current Status
 
- CodeBound is currently **`v0.1.4-nightly.4`**.
+ CodeBound is currently **`v0.1.4-nightly.5`**.
 
  ### Available
 

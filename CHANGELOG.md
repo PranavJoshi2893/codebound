@@ -5,7 +5,7 @@ All notable changes to CodeBound will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and this project adheres to [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [v0.1.4-nightly.5] - 2026-11-08
 
 ### Added
 - Guided HTML calltree explorer with a plain-language reading guide, arrow/context legend, searchable functions, caller/callee navigation, and context explanations with expandable technical evidence.
