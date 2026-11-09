@@ -1,4 +1,4 @@
-# CodeBound `v0.1.4-nightly.6`
+# CodeBound `v0.1.4-nightly.7`
 
  **CodeBound is an opinionated Go CLI for scaffolding consistent project structures and building toward enforceable architectural boundaries.**
 
@@ -10,7 +10,7 @@
 codebound create example-api
 ```
 
- > **Prerelease Notice:** CodeBound is currently in **v0.1.4-nightly.6**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
+ > **Prerelease Notice:** CodeBound is currently in **v0.1.4-nightly.7**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
 
 ---
 
@@ -46,7 +46,7 @@ codebound create example-api
  Make sure you have [Go](<https://go.dev/>) installed, then install CodeBound:
 
 ```
-go install github.com/PranavJoshi2893/codebound@v0.1.4-nightly.6
+go install github.com/PranavJoshi2893/codebound@v0.1.4-nightly.7
 ```
 
  Verify the installation:
@@ -263,13 +263,56 @@ ranges; read down a range, then follow **continue → Bn.step** to the next colu
 Only the last range shows the actual return/branch/loop exit. Block IDs, call-site
 IDs, context positions, and the analysis evidence are unchanged.
 
-Single-column cards attach single-site arrows to their call row. Multi-column
-cards use exterior arrows with exact step references, so connections cannot cut
-through neighbouring panels. Repeated calls share one route with
-references such as **B0.2, B3.1**, rather than incorrectly attaching every call to
-the first site. Context notes stay at their corresponding step, including inside
-closures and deferred registrations. JSON gains optional `flow` and `site`
-evidence; the detailed DOT export keeps its existing presentation.
+Panels containing outgoing calls expand to the card's sides so connectors attach
+visibly to the actual call rows without crossing neighboring panels. Other panels
+remain compact. A **filled source dot** identifies an exact call row; a **hollow
+dot** means the source row is unavailable. Distinct call rows have separate
+connectors, while repeated evidence at the same row shares a route. Context notes
+and bindings stay with their own call site, including closures and deferred
+registrations. JSON retains optional `flow` and `site` evidence; the detailed DOT
+export keeps its existing presentation.
+
+Hover a calling row or connector to highlight its source, path, and destination
+while dimming unrelated content. Click a connector to pin the trace; click it
+again or press **Esc** to clear. Keyboard-focus a function to trace its outgoing
+calls. Traces stay aligned during zoom/pan and reset when the diagram changes.
+
+### Router-to-handler wiring
+
+The browser shows route registration separately from request dispatch for **Chi
+v5 and Go 1.22+ `net/http.ServeMux`**. A thin connector labeled **registers
+GET /items/** ends in a **hollow diamond**, not a call arrowhead. Registration
+assigns a handler; it does not invoke it or pass request context. Existing possible
+HTTP-dispatch paths remain separate.
+
+Registration links are visible by default. Uncheck **Show route registrations**
+to hide this secondary layer. Hover/pin tracing, context mode, and **Selected +
+neighbors** also work with registration links. Function details include separate
+**Registers routes** and **Registered by** sections with source/prefix evidence.
+Self-registration stays as an explicit **◇ registers … → this function** note at
+its row rather than a tangled exterior loop.
+Feedback registration connectors also keep their method/path caption at the source
+row, so it cannot collide with forward-call labels.
+
+Chi recognition composes known `Route`/`Group` prefixes through configuration
+callbacks and project helpers. ServeMux supports instance and package-level
+`Handle`/`HandleFunc`, named/bound/inline function handlers, HandlerFunc adapters,
+and statically known concrete `ServeHTTP` methods. Separate router allocations
+retain separate identities; these identify static configuration contexts, not
+unique runtime objects. Executable package initialization is inspected without
+inventing `main → init` call edges.
+
+ServeMux patterns retain methods, hosts, wildcards (`{id}`, `{rest...}`, `{$}`),
+and trailing slashes. A methodless pattern is **ALL**; GET also matches HEAD under
+modern ServeMux rules. The analyzer does not infer deployed runtime settings:
+`GODEBUG=httpmuxgo121=1` enables legacy pattern behavior.
+
+Dynamic prefixes/patterns, ambiguous handler values, opaque adapters, unsupported
+Chi mounts, and bounded/recursive configuration remain explicitly unresolved or
+partial. Nil handlers are findings, not invented destinations. A handler known
+only from registration is not classified as request-reachable. Registration never
+changes context propagation or architecture-call checks. JSON adds optional
+`registrations` and `registration_warnings`; detailed DOT remains call-only.
 
 ### Context usage in the call tree
 
@@ -343,8 +386,9 @@ main [starts C2; deferred stop C2]
   `Done()` channel.
 - **Call arrows** match actual SSA arguments to parameters, including interface
   receivers. Multiple possible inputs are labeled `possible`; unsupported flows
-  stay unresolved. In the browser, calls between the same pair of functions share
-  one arrow listing possible origins and call/go/defer variants. **partial**
+  stay unresolved. In the browser, repeated evidence from the same call row to the
+  same target shares one arrow listing possible origins and call/go/defer variants.
+  Evidence without a known row shares a hollow-dot arrow. **partial**
   marks missing binding evidence on some variants, not proof that no context is
   passed. Detailed DOT exports
   keep distinct context-passing arrows separate.
@@ -518,7 +562,7 @@ example-api/
 
  ## Current Status
 
- CodeBound is currently **`v0.1.4-nightly.6`**.
+ CodeBound is currently **`v0.1.4-nightly.7`**.
 
  ### Available
 

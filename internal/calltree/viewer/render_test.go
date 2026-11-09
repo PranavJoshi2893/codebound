@@ -113,16 +113,25 @@ func TestNodeMapMetadata(t *testing.T) {
 func decodeNodeMetadata(t *testing.T, svg []byte) []graphNode {
 	t.Helper()
 	var document struct {
-		Metadata string `xml:"metadata"`
+		Metadata []struct {
+			ID   string `xml:"id,attr"`
+			Text string `xml:",chardata"`
+		} `xml:"metadata"`
 	}
 	if err := xml.Unmarshal(svg, &document); err != nil {
 		t.Fatal(err)
 	}
 	var nodes []graphNode
-	if err := json.Unmarshal([]byte(document.Metadata), &nodes); err != nil {
-		t.Fatal(err)
+	for _, metadata := range document.Metadata {
+		if metadata.ID == "codebound-nodes" {
+			if err := json.Unmarshal([]byte(metadata.Text), &nodes); err != nil {
+				t.Fatal(err)
+			}
+			return nodes
+		}
 	}
-	return nodes
+	t.Fatal("missing node metadata")
+	return nil
 }
 
 func TestGraphvizSelectableNodes(t *testing.T) {

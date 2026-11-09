@@ -40,8 +40,16 @@ func Handler(svg []byte, graph *model.Graph) http.Handler {
 			}
 			options.Focus = id
 		}
+		switch request.URL.Query().Get("registrations") {
+		case "", "1":
+		case "0":
+			options.HideRegistrations = true
+		default:
+			http.Error(writer, "invalid registration visibility", http.StatusBadRequest)
+			return
+		}
 		image := svg
-		if options.Contexts || options.Focus >= 0 {
+		if options.Contexts || options.Focus >= 0 || options.HideRegistrations {
 			if graph == nil {
 				http.Error(writer, "graph data unavailable", http.StatusServiceUnavailable)
 				return

@@ -24,10 +24,10 @@ test-race:
 	@CGO_ENABLED=1 go test -race ./...
 
 test-browser:
-	@CODEBOUND_BROWSER_TESTS=1 go test ./internal/calltree/viewer -run TestBrowserGraphNavigation -count=1
+	@CODEBOUND_BROWSER_TESTS=1 go test ./internal/calltree/viewer -run 'TestBrowser(GraphNavigation|ServeMuxRegistrations)' -count=1
 
 test-browser-mobile:
-	@MOZ_HEADLESS_WIDTH=390 MOZ_HEADLESS_HEIGHT=844 CODEBOUND_BROWSER_TESTS=1 go test ./internal/calltree/viewer -run TestBrowserGraphNavigation -count=1
+	@MOZ_HEADLESS_WIDTH=390 MOZ_HEADLESS_HEIGHT=844 CODEBOUND_BROWSER_TESTS=1 go test ./internal/calltree/viewer -run 'TestBrowser(GraphNavigation|ServeMuxRegistrations)' -count=1
 
 bench:
 	@go test ./internal/calltree/... -run '^$$' -bench . -benchmem

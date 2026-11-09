@@ -15,6 +15,7 @@ func registerAssets(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", staticResponse("text/html; charset=utf-8", indexHTML))
 	for _, asset := range []struct{ name, contentType string }{
 		{"camera.js", "text/javascript; charset=utf-8"},
+		{"tracing.js", "text/javascript; charset=utf-8"},
 		{"graph.js", "text/javascript; charset=utf-8"},
 		{"explorer.js", "text/javascript; charset=utf-8"},
 		{"viewer.css", "text/css; charset=utf-8"},

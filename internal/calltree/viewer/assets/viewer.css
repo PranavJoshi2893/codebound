@@ -8,6 +8,8 @@ aside { padding: 1rem; overflow: auto; border-right: 1px solid #dbe2ea; backgrou
 .canvas { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden; min-width: 0; min-height: 0; }
 .view-controls { padding: 0.6rem 0.75rem; background: white; border-bottom: 1px solid #dbe2ea; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
 .view-controls label { margin: 0; }
+.view-controls .registration-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: 0.4rem; }
+.registration-toggle input { width: auto; margin: 0; accent-color: #526075; }
 #diagram-status { flex-basis: 100%; min-width: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; border-bottom: 1px solid #dbe2ea; background: white; }
 .graph-legend { height: 3.8em; overflow: auto; padding: 0.4rem 0.75rem; margin: 0; border-top: 1px solid #dbe2ea; background: white; font-size: 0.75rem; color: #526075; }
@@ -51,6 +53,9 @@ select { font: inherit; padding: 0.4rem; margin-left: 0.25rem; max-width: 100%; 
 #viewport.dragging { cursor: grabbing; }
 #graph { position: absolute; top: 0; left: 0; transform-origin: 0 0; pointer-events: none; }
 #graph:not([src]) { visibility: hidden; }
+#viewport.is-tracing #graph { opacity: 0.35; }
+#graph-trace { position: absolute; top: 0; left: 0; pointer-events: none; }
+#trace-caption { position: absolute; bottom: 8px; left: 8px; right: 8px; margin: 0; padding: 0.4rem 0.6rem; background: #fffffff2; color: #172033; border: 1px solid #dbe2ea; border-radius: 6px; font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .static-graph { width: 100%; height: 100%; object-fit: contain; }
 #graph-nodes { position: absolute; top: 0; left: 0; transform-origin: 0 0; pointer-events: none; }
 /* The SVG owns the box border. Image-map rectangles are rounded to pixels and

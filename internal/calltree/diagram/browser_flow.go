@@ -9,9 +9,11 @@ import (
 )
 
 // Each basic block is a small card INSIDE the existing function node. There is
-// still one selectable function and one bundled route per function relationship.
+// still one selectable function; call connectors attach to their source rows.
 // Labeled exits, rather than vertical placement of block cards, define the path.
-func renderFlowLabel(header string, function model.Function, contexts, root bool, recursion map[string][]string, layout flowLayout) string {
+// Row links supply inert image-map geometry for tracing. They do not add
+// selectable functions or executable SVG to the page.
+func renderFlowLabel(header string, function model.Function, contexts, root bool, recursion map[string][]string, layout flowLayout, functionID int, registrations map[string][]string) string {
 	var out strings.Builder
 	out.WriteString(`<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0">`)
 	fmt.Fprintf(&out, `<TR><TD COLSPAN="%d" PORT="entry" ALIGN="LEFT" BALIGN="LEFT" CELLPADDING="9">`, flowTableColumns(layout.columns)+2)
@@ -36,7 +38,7 @@ func renderFlowLabel(header string, function model.Function, contexts, root bool
 		}
 	}
 	for _, group := range layout.groups {
-		renderFlowGroup(&out, layout, group, operations, recursion)
+		renderFlowGroup(&out, layout, group, operations, recursion, functionID, registrations)
 	}
 	missing := 0
 	for _, findings := range operations {
@@ -44,6 +46,13 @@ func renderFlowLabel(header string, function model.Function, contexts, root bool
 	}
 	if missing > 0 {
 		fmt.Fprintf(&out, `<TR><TD COLSPAN="%d" ALIGN="LEFT" CELLPADDING="6"><FONT POINT-SIZE="9" COLOR="#526075">%d context findings not positioned · see details</FONT></TD></TR>`, flowTableColumns(layout.columns)+2, missing)
+	}
+	unpositioned := 0
+	for _, notes := range registrations {
+		unpositioned += len(notes)
+	}
+	if unpositioned > 0 {
+		fmt.Fprintf(&out, `<TR><TD COLSPAN="%d" ALIGN="LEFT" CELLPADDING="6"><FONT POINT-SIZE="9" COLOR="#92400e">%d route findings not positioned · see details</FONT></TD></TR>`, flowTableColumns(layout.columns)+2, unpositioned)
 	}
 	out.WriteString(`</TABLE>`)
 	return out.String()
@@ -76,7 +85,7 @@ func flowBlank(out *strings.Builder, span int) {
 	fmt.Fprintf(out, `<TD COLSPAN="%d" BORDER="0" CELLPADDING="0"></TD>`, flowTableColumns(span))
 }
 
-func renderFlowGroup(out *strings.Builder, layout flowLayout, group []int, operations map[string][]model.ContextOperation, recursion map[string][]string) {
+func renderFlowGroup(out *strings.Builder, layout flowLayout, group []int, operations map[string][]model.ContextOperation, recursion map[string][]string, functionID int, registrations map[string][]string) {
 	rows, width := 0, 0
 	var titles []string
 	var spans []int
@@ -137,12 +146,12 @@ func renderFlowGroup(out *strings.Builder, layout flowLayout, group []int, opera
 		if width < layout.columns {
 			slots = append(slots, flowSlot{span: layout.columns - width})
 		}
-		renderFlowBand(out, slots, operations, recursion)
+		renderFlowBand(out, slots, operations, recursion, functionID, registrations)
 		fmt.Fprintf(out, `<TR><TD COLSPAN="%d" BORDER="0" HEIGHT="8" CELLPADDING="0"></TD></TR>`, flowTableColumns(layout.columns)+2)
 	}
 }
 
-func renderFlowBand(out *strings.Builder, slots []flowSlot, operations map[string][]model.ContextOperation, recursion map[string][]string) {
+func renderFlowBand(out *strings.Builder, slots []flowSlot, operations map[string][]model.ContextOperation, recursion map[string][]string, functionID int, registrations map[string][]string) {
 	flowRowStart(out)
 	steps := 0
 	for i, slot := range slots {
@@ -172,7 +181,7 @@ func renderFlowBand(out *strings.Builder, slots []flowSlot, operations map[strin
 			if row == count {
 				renderPanelExit(out, block, slot.panel, slot.span)
 			} else {
-				renderPanelStep(out, block.Steps[slot.panel.first+row], slot.span, operations, recursion)
+				renderPanelStep(out, block.Steps[slot.panel.first+row], slot.span, operations, recursion, functionID, registrations)
 			}
 		}
 		flowRowEnd(out)
@@ -195,7 +204,7 @@ func renderPanelHeader(out *strings.Builder, block model.FlowBlock, panel flowPa
 	out.WriteString(`</TD>`)
 }
 
-func renderPanelStep(out *strings.Builder, step model.FlowStep, span int, operations map[string][]model.ContextOperation, recursion map[string][]string) {
+func renderPanelStep(out *strings.Builder, step model.FlowStep, span int, operations map[string][]model.ContextOperation, recursion map[string][]string, functionID int, registrations map[string][]string) {
 	label, background := step.Label, "white"
 	switch step.Kind {
 	case "go":
@@ -213,6 +222,9 @@ func renderPanelStep(out *strings.Builder, step model.FlowStep, span int, operat
 		port = ` PORT="` + html.EscapeString(step.ID) + `"`
 		leftPort = ` PORT="` + html.EscapeString(step.ID+"_w") + `"`
 	}
+	if functionID >= 0 && step.ID != "" {
+		port += fmt.Sprintf(` HREF="site:%d:%s" TOOLTIP="%s"`, functionID, html.EscapeString(step.ID), html.EscapeString(step.Label))
+	}
 	fmt.Fprintf(out, `<TD%s BORDER="1" SIDES="L" COLOR="#dbe2ea" CELLPADDING="5" ALIGN="LEFT" VALIGN="TOP" BGCOLOR="%s"><FONT POINT-SIZE="9" COLOR="#64748b">%s</FONT></TD><TD%s COLSPAN="%d" BORDER="1" SIDES="R" COLOR="#dbe2ea" CELLPADDING="5" ALIGN="LEFT" VALIGN="TOP" BALIGN="LEFT" BGCOLOR="%s"><FONT POINT-SIZE="11">%s</FONT>`, leftPort, background, html.EscapeString(step.Reference), port, flowTableColumns(span)-1, background, html.EscapeString(label))
 	for i, note := range recursion[step.ID] {
 		color := "#2563eb"
@@ -221,6 +233,10 @@ func renderPanelStep(out *strings.Builder, step model.FlowStep, span int, operat
 		}
 		fmt.Fprintf(out, `<BR ALIGN="LEFT"/><FONT POINT-SIZE="10" COLOR="%s">%s</FONT>`, color, html.EscapeString(note))
 	}
+	for _, note := range registrations[step.ID] {
+		fmt.Fprintf(out, `<BR ALIGN="LEFT"/><FONT POINT-SIZE="10" COLOR="#92400e">%s</FONT>`, html.EscapeString(note))
+	}
+	delete(registrations, step.ID)
 	var findings []model.ContextOperation
 	if step.ID != "" {
 		findings = operations[step.ID]

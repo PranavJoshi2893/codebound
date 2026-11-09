@@ -77,7 +77,7 @@ func TestFlowLayoutLongBlocksUseOrderedContinuationColumns(t *testing.T) {
 	if plan.columns != 3 || len(panels) != 1 || !reflect.DeepEqual(panels[0], []flowPanel{{block: 0, first: 0, last: 5}, {block: 0, first: 5, last: 10}, {block: 0, first: 10, last: 14}}) {
 		t.Fatalf("long sequential blocks should use contiguous, balanced continuation columns: %+v", panels)
 	}
-	label := renderFlowLabel("main", function, false, true, nil, plan)
+	label := renderFlowLabel("main", function, false, true, nil, plan, 0, nil)
 	for _, want := range []string{"steps 1–5", "steps 6–10", "steps 11–14", "continue → B7.6", "continue → B7.11"} {
 		if !strings.Contains(label, want) {
 			t.Errorf("continuation must preserve explicit reading order: %s", want)
@@ -118,5 +118,40 @@ func TestFlowLayoutReusesWidthAlreadyNeededByBranches(t *testing.T) {
 	want := []flowPanel{{block: 0, first: 0, last: 2}, {block: 0, first: 2, last: 4}}
 	if !reflect.DeepEqual(plan.scopes[0].rows[0], want) || plan.scopes[0].columns != 2 {
 		t.Fatalf("entry steps should reuse existing branch columns without widening their scope: %+v", plan.scopes[0].rows[0])
+	}
+}
+
+func TestFlowLayoutExposesOnlyBandsWithOutgoingCalls(t *testing.T) {
+	flow := browserExecutionFixture().Root.Flow
+	plan := planFlowLayout(flow)
+	before := planFlowLayout(flow)
+	exposed := plan.exposeCallSites(map[string]bool{"s5": true})
+	if len(exposed.scopes[0].rows[0]) != 2 {
+		t.Fatal("entry panels without outgoing calls should retain their compact band")
+	}
+	found := false
+	for _, group := range exposed.groups {
+		for _, id := range group {
+			section := exposed.scopes[id]
+			for _, row := range section.rows {
+				for _, panel := range row {
+					for _, step := range section.scope.Blocks[panel.block].Steps[panel.first:panel.last] {
+						if step.ID != "s5" {
+							continue
+						}
+						found = true
+						if len(group) != 1 || len(row) != 1 {
+							t.Fatal("an outgoing call must reach both box sides without a neighboring panel in its way")
+						}
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("call row disappeared during layout")
+	}
+	if !reflect.DeepEqual(before, plan) {
+		t.Fatal("exposing call sites must not mutate a reusable layout")
 	}
 }

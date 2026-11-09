@@ -267,6 +267,66 @@
     passed.push("clickable graph nodes and synchronized highlights");
     passed.push("single SVG border with separate selection/focus markers");
 
+    const traceImage = new DOMParser().parseFromString(await (await fetch("calltree.svg?mode=calls")).text(), "image/svg+xml");
+    const traceData = JSON.parse(traceImage.querySelector('#codebound-traces').textContent);
+    const source = traceData.sites.find((site) => site.from === 0 && site.site === "q0b0s2");
+    const route = traceData.routes.find((item) => item.from === 0 && item.to === 1);
+    check(source && route && route.site === source.site, "Routes must identify the actual calling row");
+    const caption = document.getElementById("trace-caption");
+    function pointInView(x, y) {
+      const bounds = viewport.getBoundingClientRect();
+      const camera = view();
+      return { x: bounds.left + camera.x + x * camera.scale, y: bounds.top + camera.y + y * camera.scale };
+    }
+    const sourcePoint = pointInView((source.bounds[0] + source.bounds[2]) / 2, (source.bounds[1] + source.bounds[3]) / 2);
+    pointer("pointermove", sourcePoint.x, sourcePoint.y);
+    check(viewport.classList.contains("is-tracing") && !caption.hidden && caption.textContent.includes("Worker.Run"), "Hovering a source row must trace its route and destination");
+    check(getComputedStyle(graph).opacity === "0.35", "Tracing must dim unrelated content");
+    const traceCanvas = document.getElementById("graph-trace");
+    check(traceCanvas.clientWidth === viewport.clientWidth && traceCanvas.clientHeight === viewport.clientHeight, "Tracing bitmap must be bounded by the viewport, not the entire graph");
+    viewport.dispatchEvent(new PointerEvent("pointerleave"));
+    check(!viewport.classList.contains("is-tracing") && caption.hidden, "Leaving the graph must clear an unpinned trace");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", route.path);
+    const midpoint = path.getPointAtLength(path.getTotalLength() / 2);
+    const routePoint = pointInView(midpoint.x * traceData.transform[0] + traceData.transform[2], midpoint.y * traceData.transform[1] + traceData.transform[3]);
+    pointer("pointermove", routePoint.x, routePoint.y);
+    check(viewport.classList.contains("is-tracing"), "The connector itself must be a generous hover target");
+    viewport.setPointerCapture = (id) => { captured = id; };
+    viewport.hasPointerCapture = (id) => captured === id;
+    viewport.releasePointerCapture = () => { captured = null; };
+    function clickRoute(point) {
+      pointer("pointerdown", point.x, point.y);
+      pointer("pointerup", point.x, point.y);
+      viewport.dispatchEvent(new MouseEvent("click", { clientX: point.x, clientY: point.y, detail: 1, bubbles: true }));
+    }
+    try {
+      clickRoute(routePoint);
+      check(caption.textContent.includes("Pinned"), "Clicking a connector must pin the trace");
+      pointer("pointermove", -100, -100);
+      check(viewport.classList.contains("is-tracing"), "Pinned tracing must survive pointer movement");
+      zoomIn.click();
+      check(viewport.classList.contains("is-tracing") && caption.textContent.includes("Pinned"), "Pinned traces must survive zoom/pan without a new layout");
+      key("Escape");
+      check(!viewport.classList.contains("is-tracing") && caption.hidden, "Escape must clear the pinned trace");
+      zoomOut.click();
+      clickRoute(routePoint);
+      clickRoute(routePoint);
+      check(!viewport.classList.contains("is-tracing"), "Clicking the pinned connector again must release it");
+    } finally {
+      [viewport.setPointerCapture, viewport.hasPointerCapture, viewport.releasePointerCapture] = captureMethods;
+    }
+    for (const invalid of [
+      { ...traceData, transform: [0, 1, 0, 0] },
+      { ...traceData, routes: [{ ...route, path: "javascript:alert(1)" }] },
+      { ...traceData, sites: [{ ...source, bounds: [10, 10, 0, 0] }] },
+    ]) {
+      let rejected = false;
+      try { window.CodeboundTracing.validate(invalid); } catch { rejected = true; }
+      check(rejected, "Malformed trace geometry must not enter rendering/hit testing");
+    }
+    passed.push("source-row and connector tracing, pin/release, zoom alignment, and safe geometry");
+
     async function changeView(control, value, count) {
       const previousSource = graph.src;
       const previousScale = view().scale;

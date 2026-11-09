@@ -6,9 +6,11 @@
   const nodeLayer = document.getElementById("graph-nodes");
   const mode = document.getElementById("graph-mode");
   const scope = document.getElementById("graph-scope");
+  const registrations = document.getElementById("graph-registrations");
   const status = document.getElementById("diagram-status");
   const contextKey = document.getElementById("context-key");
   const camera = new window.CodeboundCamera(viewport, graph, nodeLayer);
+  const tracing = new window.CodeboundTracing(viewport, graph, nodeLayer, camera);
   const buttons = new Map();
   let selected = 0;
   let selectedName = "root";
@@ -19,9 +21,10 @@
   let imageURL;
 
   function describe(options) {
-    const content = options.contexts ? "Calls + context · Blue labels show context passed on the call arrow" : "Call flow";
+    const content = (options.contexts ? "Calls + context · Blue labels show context passed on the call arrow" : "Call flow") +
+      (options.registrations ? " · ◇ registers a route, not a call" : " · Route registration links hidden");
     return options.focus !== null ? `${content} · Focus: ${options.name} · Direct links only; other relationships are hidden. +N links = hidden links.` :
-      `${content} · Start at ROOT. Inside a block read ↓, then follow its labeled exits. Shaded groups share a package.`;
+      `${content} · Start at ROOT. Follow source dots → arrowheads. Hover a row or arrow to trace. Shaded groups share a package.`;
   }
 
   function setStatus(text) {
@@ -49,15 +52,19 @@
     if (restoreFocus) buttons.get(selected)?.focus({ preventScroll: true });
   }
 
-  function readNodes(svg) {
+  function readMetadata(svg, id) {
     // Parse only the inert metadata, not a second DOM copy of the entire graph.
     // SVG content is NEVER inserted into the page: it stays an isolated image.
-    const start = svg.lastIndexOf('<metadata id="codebound-nodes">');
-    if (start < 0) return [];
+    const start = svg.lastIndexOf(`<metadata id="${id}">`);
+    if (start < 0) return null;
     const end = svg.indexOf("</metadata>", start);
     const parsed = new DOMParser().parseFromString(svg.slice(start, end + 11), "application/xml");
     if (parsed.querySelector("parsererror") || parsed.documentElement.localName !== "metadata") throw new Error("Invalid graph metadata");
-    const nodes = JSON.parse(parsed.documentElement.textContent);
+    return JSON.parse(parsed.documentElement.textContent);
+  }
+
+  function readNodes(svg) {
+    const nodes = readMetadata(svg, "codebound-nodes") || [];
     if (!Array.isArray(nodes) || !nodes.every((node) => Number.isInteger(node.id) && node.id >= 0 &&
       typeof node.label === "string" && Array.isArray(node.bounds) && node.bounds.length === 4 &&
       node.bounds.every((value) => Number.isFinite(value) && value >= 0) &&
@@ -66,8 +73,8 @@
   }
 
   async function requestGraph() {
-    const options = { contexts: mode.value === "contexts", focus: scope.value === "neighbors" ? selected : null, name: selectedName };
-    const key = `${options.contexts}:${options.focus}`;
+    const options = { contexts: mode.value === "contexts", focus: scope.value === "neighbors" ? selected : null, name: selectedName, registrations: registrations.checked };
+    const key = `${options.contexts}:${options.focus}:${options.registrations}`;
     if (key === pendingKey) return;
     controller?.abort();
     controller = new AbortController();
@@ -81,6 +88,7 @@
     pendingKey = key;
     const restoreFocus = nodeLayer.contains(document.activeElement);
     const query = new URLSearchParams({ mode: options.contexts ? "contexts" : "calls" });
+    query.set("registrations", options.registrations ? "1" : "0");
     if (options.focus !== null) query.set("focus", options.focus);
     setStatus("Laying out the graph…");
     viewport.setAttribute("aria-busy", "true");
@@ -91,6 +99,7 @@
       const svg = await response.text();
       if (number !== requestNumber) return;
       const nodes = readNodes(svg);
+      const traces = window.CodeboundTracing.validate(readMetadata(svg, "codebound-traces"));
       nextURL = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
       const decoded = new Image();
       decoded.src = nextURL;
@@ -100,6 +109,7 @@
       graph.src = imageURL = nextURL;
       nextURL = null;
       camera.setImage(nodes, decoded.naturalWidth, decoded.naturalHeight);
+      tracing.setGraph(traces, nodes);
       renderNodes(nodes, restoreFocus);
       if (previousURL) URL.revokeObjectURL(previousURL);
       shown = { ...options, key };
@@ -110,6 +120,7 @@
       if (shown) {
         mode.value = shown.contexts ? "contexts" : "calls";
         scope.value = shown.focus === null ? "all" : "neighbors";
+        registrations.checked = shown.registrations;
         setStatus("Could not update the diagram. The previous graph is still shown; try again.");
       } else {
         camera.fail();
@@ -143,10 +154,12 @@
   });
   mode.addEventListener("change", requestGraph);
   scope.addEventListener("change", requestGraph);
+  registrations.addEventListener("change", requestGraph);
   document.addEventListener("codebound:function-selected", (event) => selectFunction(event.detail.id, event.detail.name));
   graph.addEventListener("error", () => {
     shown = null;
     camera.fail();
+    tracing.reset();
     buttons.clear();
     nodeLayer.replaceChildren();
     setStatus("Diagram could not load. The function explorer is still available.");

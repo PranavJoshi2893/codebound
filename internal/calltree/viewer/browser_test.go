@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,42 +22,12 @@ import (
 //go:embed testdata/viewer_test.js
 var browserTests []byte
 
+//go:embed testdata/registrations_test.js
+var registrationBrowserTests []byte
+
 // Run explicitly with CODEBOUND_BROWSER_TESTS=1. Firefox is only a test tool;
 // the viewer itself has no browser automation or JavaScript package dependency.
 func TestBrowserGraphNavigation(t *testing.T) {
-	if os.Getenv("CODEBOUND_BROWSER_TESTS") != "1" {
-		t.Skip("set CODEBOUND_BROWSER_TESTS=1 to run headless Firefox interaction tests")
-	}
-	firefox, err := exec.LookPath("firefox")
-	if err != nil {
-		t.Fatal("Firefox is required for browser interaction tests")
-	}
-	type browserReport struct {
-		Passed []string `json:"passed"`
-		Error  string   `json:"error"`
-	}
-	reports := make(chan browserReport, 1)
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		page := strings.Replace(string(indexHTML), "</head>", `<script src="viewer_test.js" defer></script></head>`, 1)
-		_, _ = writer.Write([]byte(page))
-	})
-	mux.HandleFunc("GET /viewer_test.js", func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = writer.Write(browserTests)
-	})
-	mux.HandleFunc("GET /test-report", func(writer http.ResponseWriter, request *http.Request) {
-		var report browserReport
-		if err := json.Unmarshal([]byte(request.URL.Query().Get("result")), &report); err != nil {
-			report.Error = "invalid browser test report: " + err.Error()
-		}
-		select {
-		case reports <- report:
-		default:
-		}
-		writer.WriteHeader(http.StatusNoContent)
-	})
 	root := calltree.Function{Name: "main", Package: "example", File: "main.go", Line: 1}
 	root.Flow = &calltree.FunctionFlow{Scopes: []calltree.FlowScope{{ID: "body", Entry: 0, Blocks: []calltree.FlowBlock{{
 		ID: 0, Label: "entry", Exit: "return", Steps: []calltree.FlowStep{
@@ -94,6 +65,75 @@ func TestBrowserGraphNavigation(t *testing.T) {
 		},
 	}
 	graph.Calls = append(graph.Calls, graph.Calls[0]) // Repeated evidence is shown once in the UI.
+	runBrowserChecks(t, graph, browserTests)
+}
+
+func TestBrowserServeMuxRegistrations(t *testing.T) {
+	if os.Getenv("CODEBOUND_BROWSER_TESTS") != "1" {
+		t.Skip("set CODEBOUND_BROWSER_TESTS=1")
+	}
+	dir := t.TempDir()
+	for name, source := range map[string]string{
+		"go.mod": "module example.com/routes\n\ngo 1.24\n",
+		"main.go": `package main
+import "net/http"
+type Handler struct{}
+func (Handler) ServeHTTP(http.ResponseWriter,*http.Request) {}
+func list(http.ResponseWriter,*http.Request) {}
+func configure(mux *http.ServeMux) {
+ mux.HandleFunc("GET example.com/items/{id}",list)
+ mux.Handle("POST /items",Handler{})
+ mux.HandleFunc("/nil",nil)
+}
+func main() { configure(http.NewServeMux()) }
+`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(source), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	graph, err := calltree.New(dir).Analyze(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runBrowserChecks(t, graph, registrationBrowserTests)
+}
+
+func runBrowserChecks(t *testing.T, graph *calltree.Graph, checks []byte) {
+	t.Helper()
+	if os.Getenv("CODEBOUND_BROWSER_TESTS") != "1" {
+		t.Skip("set CODEBOUND_BROWSER_TESTS=1 to run headless Firefox interaction tests")
+	}
+	firefox, err := exec.LookPath("firefox")
+	if err != nil {
+		t.Fatal("Firefox is required for browser interaction tests")
+	}
+	type browserReport struct {
+		Passed []string `json:"passed"`
+		Error  string   `json:"error"`
+	}
+	reports := make(chan browserReport, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+		page := strings.Replace(string(indexHTML), "</head>", `<script src="viewer_test.js" defer></script></head>`, 1)
+		_, _ = writer.Write([]byte(page))
+	})
+	mux.HandleFunc("GET /viewer_test.js", func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = writer.Write(checks)
+	})
+	mux.HandleFunc("GET /test-report", func(writer http.ResponseWriter, request *http.Request) {
+		var report browserReport
+		if err := json.Unmarshal([]byte(request.URL.Query().Get("result")), &report); err != nil {
+			report.Error = "invalid browser test report: " + err.Error()
+		}
+		select {
+		case reports <- report:
+		default:
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})
 	svg, err := RenderSVG(context.Background(), graph)
 	if err != nil {
 		t.Fatal(err)

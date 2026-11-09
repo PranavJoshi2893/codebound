@@ -115,11 +115,25 @@ func embedNodeMap(output []byte) ([]byte, error) {
 		return nil, fmt.Errorf("decode Graphviz node map: %w", err)
 	}
 	nodes := []graphNode{}
+	traces, err := readTraceGeometry(output[:end+len("</svg>")])
+	if err != nil {
+		return nil, err
+	}
 	for _, area := range imageMap.Areas {
-		if area.Shape != "rect" || !strings.HasPrefix(area.Href, "function:") {
+		isSite := strings.HasPrefix(area.Href, "site:")
+		if area.Shape != "rect" || (!strings.HasPrefix(area.Href, "function:") && !isSite) {
 			continue
 		}
-		id, err := strconv.Atoi(strings.TrimPrefix(area.Href, "function:"))
+		identity := strings.TrimPrefix(area.Href, "function:")
+		var site string
+		if isSite {
+			parts, err := traceIdentity(area.Href, "site:", 2)
+			if err != nil {
+				return nil, err
+			}
+			identity, site = parts[0], parts[1]
+		}
+		id, err := strconv.Atoi(identity)
 		if err != nil || id < 0 {
 			return nil, errors.New("invalid function ID in Graphviz node map")
 		}
@@ -137,7 +151,11 @@ func embedNodeMap(output []byte) ([]byte, error) {
 		if node.Bounds[2] <= node.Bounds[0] || node.Bounds[3] <= node.Bounds[1] {
 			return nil, errors.New("empty rectangle in Graphviz node map")
 		}
-		nodes = append(nodes, node)
+		if isSite {
+			traces.Sites = append(traces.Sites, graphSite{From: id, Site: site, Label: area.Title, Bounds: node.Bounds})
+		} else {
+			nodes = append(nodes, node)
+		}
 	}
 	encoded, err := json.Marshal(nodes)
 	if err != nil {
@@ -149,6 +167,21 @@ func embedNodeMap(output []byte) ([]byte, error) {
 	if err := xml.EscapeText(&svg, encoded); err != nil {
 		return nil, err
 	}
-	svg.WriteString("</metadata></svg>")
+	svg.WriteString("</metadata>")
+	if len(traces.Routes) > 0 {
+		encoded, err = json.Marshal(traces)
+		if err != nil {
+			return nil, err
+		}
+		svg.WriteString(`<metadata id="codebound-traces">`)
+		if err := xml.EscapeText(&svg, encoded); err != nil {
+			return nil, err
+		}
+		svg.WriteString("</metadata>")
+	}
+	svg.WriteString("</svg>")
+	if svg.Len() > maxSVGBytes {
+		return nil, errOutputLimit
+	}
 	return svg.Bytes(), nil
 }

@@ -43,7 +43,7 @@ func (index *IndexedGraph) compactBrowserFanout(edges []browserEdge, visible []i
 			first += height
 			// Use full-tree relationship counts: a focused view must not turn
 			// a target with hidden callers/calls into a private terminal.
-			if height >= 8 && index.relations[target] == 1 && groupSize[target] == 1 &&
+			if height >= 8 && index.relations[target] == 1 && index.registrationRelations[target] == 0 && groupSize[target] == 1 &&
 				index.Functions[source].Package != index.Functions[target].Package && index.phase(source) == index.phase(target) {
 				candidates = append(candidates, id)
 			}

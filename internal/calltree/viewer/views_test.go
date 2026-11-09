@@ -96,3 +96,26 @@ func TestViewCacheEntryLimit(t *testing.T) {
 		t.Fatal("small views must still obey the entry-count bound")
 	}
 }
+
+func TestRegistrationVisibilityHasItsOwnCacheKey(t *testing.T) {
+	renders := 0
+	cache := newViewCache(func(_ context.Context, options diagram.BrowserOptions) ([]byte, error) {
+		renders++
+		if options.HideRegistrations {
+			return []byte("calls only"), nil
+		}
+		return []byte("calls and registrations"), nil
+	})
+	for _, hide := range []bool{false, true, false, true} {
+		image, err := cache.image(context.Background(), diagram.BrowserOptions{Focus: 0, HideRegistrations: hide})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (string(image) == "calls only") != hide {
+			t.Fatal("registration visibility reused the wrong cached diagram")
+		}
+	}
+	if renders != 2 {
+		t.Fatal("identical registration views should reuse cache entries")
+	}
+}

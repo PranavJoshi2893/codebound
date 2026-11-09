@@ -26,6 +26,51 @@ type flowLayout struct {
 	columns int
 }
 
+// Expose outgoing call rows at both outer sides of the function. Only bands
+// containing those rows expand; other panels retain their compact layout.
+// Block exits/continuations still define order, never panel placement.
+func (plan flowLayout) exposeCallSites(sites map[string]bool) flowLayout {
+	if len(sites) == 0 {
+		return plan
+	}
+	plan.scopes = append([]flowScopeLayout(nil), plan.scopes...)
+	var groups [][]int
+	for _, group := range plan.groups {
+		exposed := false
+		for _, id := range group {
+			section := plan.scopes[id]
+			var rows [][]flowPanel
+			for _, row := range section.rows {
+				hasCall := false
+				for _, panel := range row {
+					for _, step := range section.scope.Blocks[panel.block].Steps[panel.first:panel.last] {
+						hasCall = hasCall || sites[step.ID]
+					}
+				}
+				if hasCall {
+					exposed = true
+					for _, panel := range row {
+						rows = append(rows, []flowPanel{panel})
+					}
+				} else {
+					rows = append(rows, row)
+				}
+			}
+			section.rows = rows
+			plan.scopes[id] = section
+		}
+		if exposed {
+			for _, id := range group {
+				groups = append(groups, []int{id})
+			}
+		} else {
+			groups = append(groups, group)
+		}
+	}
+	plan.groups = groups
+	return plan
+}
+
 func planFlowLayout(flow *model.FunctionFlow) flowLayout {
 	plan := flowLayout{columns: 1}
 	if flow == nil {

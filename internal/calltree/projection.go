@@ -105,6 +105,9 @@ func (a *Analysis) projectCalls(ctx context.Context, graph *callgraph.Graph, raw
 	if err := a.annotateReachableContexts(ctx, graph, raw, useful, result, descriptions, order, contextCalls); err != nil {
 		return nil, err
 	}
+	if err := a.inspectRegistrations(ctx, root, descriptions, result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 

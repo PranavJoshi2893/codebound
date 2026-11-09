@@ -47,6 +47,26 @@ func TestRebalancerHTTPProjection(t *testing.T) {
 	if len(found) != 3 || len(dispatched) != 3 {
 		t.Fatalf("missing request paths: services=%v dispatch=%v", found, dispatched)
 	}
+	registered := make(map[string]string)
+	var nilInventory bool
+	for _, registration := range graph.Registrations {
+		if !registration.MethodKnown || !registration.PatternKnown || registration.Site == "" {
+			t.Fatalf("registration lost its exact pattern/source: %+v", registration)
+		}
+		if registration.Handler == nil {
+			nilInventory = registration.Pattern == "/inventory/" && strings.Contains(registration.Issue, "nil handler")
+			continue
+		}
+		registered[registration.Handler.Name] = registration.Method + " " + registration.Pattern
+	}
+	for handler, route := range map[string]string{"Handler.List": "GET /items/", "Handler.GetByID": "GET /items/{id}", "Handler.Create": "POST /items/"} {
+		if registered[handler] != route {
+			t.Fatalf("registration %s: got %q want %q", handler, registered[handler], route)
+		}
+	}
+	if !nilInventory || len(graph.Registrations) != 4 {
+		t.Fatalf("nil inventory handler must be disclosed without borrowing an item handler: %+v", graph.Registrations)
+	}
 	index := diagram.IndexGraph(graph)
 	for _, contexts := range []bool{false, true} {
 		image, err := renderViewSVG(context.Background(), index, diagram.BrowserOptions{Focus: -1, Contexts: contexts})
@@ -60,6 +80,9 @@ func TestRebalancerHTTPProjection(t *testing.T) {
 		}
 		if !strings.Contains(string(image), "possible HTTP dispatch") {
 			t.Fatal("rendering discarded dispatch semantics")
+		}
+		if !strings.Contains(string(image), "registers GET /items/") || !strings.Contains(string(image), "nil handler") {
+			t.Fatal("registration wiring/findings missing from actual rendered SVG")
 		}
 		if artifacts := os.Getenv("CODEBOUND_LAYOUT_ARTIFACTS"); artifacts != "" {
 			name := "calls"

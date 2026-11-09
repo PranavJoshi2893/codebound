@@ -48,7 +48,7 @@ func TestBrowserExecutionBlocksAndCallSites(t *testing.T) {
 		t.Fatal(err)
 	}
 	dot := output.String()
-	for _, want := range []string{`label=<<TABLE`, "B0 · entry", "B1 · if then", "B2 · if else", "B3 · if done", "true → B1 | false → B2", "if ready &amp;&amp; value &lt; limit", "register defer · cancel()", "on exit: cancel/stop C1", "last registered first", "go · concurrent", "CLOSURE L1 · only when invoked", "observes Done: C1", "at B1.1, B2.1", "at B0.3", `tailport="e"`, `PORT="s2"`} {
+	for _, want := range []string{`label=<<TABLE`, "B0 · entry", "B1 · if then", "B2 · if else", "B3 · if done", "true → B1 | false → B2", "if ready &amp;&amp; value &lt; limit", "register defer · cancel()", "on exit: cancel/stop C1", "last registered first", "go · concurrent", "CLOSURE L1 · only when invoked", "observes Done: C1", `tailport="s5:e"`, `tailport="s6:e"`, `tailport="s3:e"`, `arrowtail="dot"`, `PORT="s2"`} {
 		if !strings.Contains(dot, want) {
 			t.Errorf("missing execution semantics %q:\n%s", want, dot)
 		}
@@ -56,17 +56,23 @@ func TestBrowserExecutionBlocksAndCallSites(t *testing.T) {
 	if strings.Index(dot, "prepare()") > strings.Index(dot, "C1 ← I1") {
 		t.Fatal("context derivation must stay at its actual step, not move above earlier calls")
 	}
-	if strings.Count(dot, "n0 -> n1") != 1 || strings.Contains(dot, `tailport="s5:e"`) || strings.Contains(dot, `tailport="s3:e"`) {
-		t.Fatal("multi-column cards must use exterior routes with site references, not cut through adjacent panels")
+	if strings.Count(dot, "n0 -> n1") != 2 || strings.Contains(dot, "at B1.1, B2.1") {
+		t.Fatal("distinct call rows need their own visibly attached route, not references the reader must decode")
+	}
+	if !strings.Contains(dot, `go\nctx=C1`) || !strings.Contains(dot, `ctx=I1`) {
+		t.Fatal("each call row must retain its own scheduling and context, not borrow another row's variants")
 	}
 	if strings.Contains(dot, "ready && value < limit") {
 		t.Fatal("source expressions must be escaped in Graphviz HTML labels")
 	}
-	checkLayoutTextSeparate(t, renderDOTLayout(t, dot))
+	layout := renderDOTLayout(t, dot)
+	checkLayoutTextSeparate(t, layout)
+	checkLayoutRoutesAvoidText(t, layout)
 }
 
 func TestBrowserPanelsUseHorizontalSpaceWithoutReorderingExecution(t *testing.T) {
 	graph := browserExecutionFixture()
+	graph.Calls = nil // Panels without outgoing connectors should remain compact.
 	index := IndexGraph(graph)
 	render := func() contextLayout {
 		t.Helper()
@@ -136,11 +142,11 @@ func TestBrowserPanelsUseHorizontalSpaceWithoutReorderingExecution(t *testing.T)
 func TestBrowserExecutionDoesNotMoveUnpositionedFindings(t *testing.T) {
 	graph := browserExecutionFixture()
 	graph.Root.Context.Operations = append(graph.Root.Context.Operations, ContextOperation{Kind: "create", IDs: []string{"C99"}})
-	label := renderFlowLabel("main", graph.Root, true, true, nil, planFlowLayout(graph.Root.Flow))
+	label := renderFlowLabel("main", graph.Root, true, true, nil, planFlowLayout(graph.Root.Flow), 0, nil)
 	if !strings.Contains(label, "1 context findings not positioned") || strings.Contains(label, "new C99") {
 		t.Fatal("findings without execution evidence must not be inserted at an invented position")
 	}
-	label = renderFlowLabel("<script>& source", graph.Root, false, false, nil, planFlowLayout(graph.Root.Flow))
+	label = renderFlowLabel("<script>& source", graph.Root, false, false, nil, planFlowLayout(graph.Root.Flow), 0, nil)
 	if strings.Contains(label, "<script>") || !strings.Contains(label, "&lt;script&gt;&amp; source") || strings.Contains(label, "C1 ← I1") {
 		t.Fatal("flow labels must escape source names and hide context evidence in call-only mode")
 	}
@@ -149,7 +155,7 @@ func TestBrowserExecutionDoesNotMoveUnpositionedFindings(t *testing.T) {
 	}
 	recoverID := 3
 	graph.Root.Flow.Scopes[0].Recover = &recoverID
-	label = renderFlowLabel("main", graph.Root, false, true, nil, planFlowLayout(graph.Root.Flow))
+	label = renderFlowLabel("main", graph.Root, false, true, nil, planFlowLayout(graph.Root.Flow), 0, nil)
 	if !strings.Contains(label, "if panic recovered → B3") {
 		t.Fatal("a possible recovered-panic entry must be labeled, not put on the ordinary sequential path")
 	}
@@ -190,7 +196,7 @@ func TestBrowserRoutingSeparatesForwardAndFeedbackPorts(t *testing.T) {
 	if backward != 2 || forward != 11 || local != 1 {
 		t.Fatalf("routing must preserve all forward, cyclic and recursive calls: forward=%d backward=%d local=%d", forward, backward, local)
 	}
-	label := renderFlowLabel("main", index.Functions[0], true, true, nil, index.layouts[0])
+	label := renderFlowLabel("main", index.Functions[0], true, true, nil, index.layouts[0], 0, nil)
 	for _, port := range []string{`PORT="entry"`, `PORT="q0b0s1"`, `PORT="q0b0s1_w"`} {
 		if !strings.Contains(label, port) {
 			t.Errorf("card must offer exterior ports without changing execution row order: %s", port)

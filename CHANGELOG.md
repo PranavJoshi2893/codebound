@@ -5,6 +5,24 @@ All notable changes to CodeBound will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and this project adheres to [Semantic Versioning](https://semver.org).
 
+## [v0.1.4-nightly.7] - 2026-11-09
+
+### Added
+- Separate router-to-handler registration evidence for Chi v5 and Go 1.22+ ServeMux, including typed handler resolution, known route prefixes, method/host/wildcard patterns, and package-level/default-mux registrations.
+- Distinct registration connectors with hollow diamond destinations, source-row findings, registration details, focused navigation, and a visibility toggle; retain HTTP request dispatch as separate invocation evidence.
+- Source-row and connector hover/pin tracing with keyboard support, Escape-to-clear, viewport-bounded canvas rendering, and safe geometry metadata while keeping SVG isolated as an image.
+- Regression coverage for registration identities, prefix provenance, aliases, initialization, inline/bound/concrete handlers, unresolved and nil handlers, recursive configuration, desktop/mobile browser interactions, and optional read-only rebalancer checks.
+
+### Changed
+- Attach outgoing connectors to their actual source rows and give distinct call sites separate routes while deduplicating identical evidence at the same site.
+- Expand panels containing outgoing connections to the card edges, retaining compact layout for other panels; keep feedback registration captions at their source rows and self-registration as local notes to avoid crossing loops.
+- Extend JSON with optional registration evidence and analysis warnings without changing call/context propagation, architecture-call checks, or the call-only DOT export.
+
+### Fixed
+- Make router configuration visibly connect to registered handlers without implying registration executes them or passes request context.
+- Preserve distinct mux/source identities and callback-prefix pairings; disclose unsupported, mutable, dynamic, recursive, and nil-handler cases instead of inventing precise wiring.
+- Retain zoom, focus, cache separation, and the last usable diagram across registration visibility changes and rendering failures.
+
 ## [v0.1.4-nightly.6] - 2026-11-09
 
 ### Added

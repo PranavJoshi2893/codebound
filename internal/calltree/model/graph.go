@@ -80,7 +80,9 @@ type Call struct {
 }
 
 type Graph struct {
-	Root     Function      `json:"root"`
-	Calls    []Call        `json:"calls"`
-	Evidence *CallEvidence `json:"evidence,omitempty"`
+	Root                 Function            `json:"root"`
+	Calls                []Call              `json:"calls"`
+	Evidence             *CallEvidence       `json:"evidence,omitempty"`
+	Registrations        []RouteRegistration `json:"registrations,omitempty"`
+	RegistrationWarnings []string            `json:"registration_warnings,omitempty"`
 }

@@ -10,17 +10,16 @@ import (
 	"github.com/PranavJoshi2893/codebound/internal/calltree/model"
 )
 
-// A browser edge is a relationship, not a call site. Keep one route between a
-// pair of functions and summarize its possible variants without mutating them.
-// Detailed call-site evidence remains in the explorer and DOT/JSON exports.
+// Relationships share ranking/compaction decisions. Drawing splits them by
+// known call site so distinct execution rows never borrow each other's origin.
 type browserEdge struct {
 	from, to   int
 	calls      []*model.Call
 	steps      map[string]indexedStep
 	backward   bool
 	targetFlow bool
-	gridSource bool
-	minlen     int // layout-only shelf distance; zero uses Graphviz's default
+	gridSource bool // Reserve caption gutters alongside wide execution cards.
+	minlen     int  // layout-only shelf distance; zero uses Graphviz's default
 }
 
 func (index *IndexedGraph) browserEdges(calls []int, focused bool) []browserEdge {
@@ -94,6 +93,41 @@ func routeBrowserEdges(edges []browserEdge) {
 }
 
 func (edge browserEdge) writeDOT(output io.Writer, contexts bool) error {
+	for _, route := range edge.siteRoutes() {
+		if err := route.writeRouteDOT(output, contexts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (edge browserEdge) siteRoutes() []browserEdge {
+	// Recursion retains its existing per-row notes, including the conservative
+	// exterior fallback when some recursive evidence has no known position.
+	if edge.from == edge.to {
+		return []browserEdge{edge}
+	}
+	var routes []browserEdge
+	bySite := make(map[string]int)
+	for _, call := range edge.calls {
+		site := call.Site
+		if _, exists := edge.steps[site]; !exists {
+			site = ""
+		}
+		id, exists := bySite[site]
+		if !exists {
+			id = len(routes)
+			bySite[site] = id
+			route := edge
+			route.calls = nil
+			routes = append(routes, route)
+		}
+		routes[id].calls = append(routes[id].calls, call)
+	}
+	return routes
+}
+
+func (edge browserEdge) writeRouteDOT(output io.Writer, contexts bool) error {
 	if edge.localRecursion() {
 		return nil // Rendered at its actual execution row, not as an exterior loop.
 	}
@@ -140,14 +174,22 @@ func (edge browserEdge) writeDOT(output io.Writer, contexts bool) error {
 	}
 	if hidden {
 		style = "dashed"
-		label := "indirect · hidden calls"
+		label := ""
 		if dispatch {
 			label = "possible HTTP dispatch\nindirect"
 		}
 		if invocation {
+			if label == "" {
+				label = "indirect"
+			}
 			label = "invocation / " + label
 		}
-		labels = append(labels, label)
+		// The dashed stroke already explains an ordinary hidden corridor. Avoid
+		// repeating the same caption on parallel source-row routes; explicit
+		// HTTP boundaries and mixed invocation/path evidence still need labels.
+		if label != "" {
+			labels = append(labels, label)
+		}
 		tooltip += "\nIncludes a hidden call path, not a direct invocation; source row is path entry, context bindings are at path exit"
 	}
 	if callback {
@@ -179,7 +221,9 @@ func (edge browserEdge) writeDOT(output io.Writer, contexts bool) error {
 	if edge.targetFlow {
 		head = "entry:" + head
 	}
-	if len(sites) == 1 && complete && !edge.gridSource {
+	source := ""
+	if len(sites) == 1 && complete {
+		source = sites[0].ID
 		if edge.backward && edge.from != edge.to {
 			tail = sites[0].ID + "_w:w"
 		} else {
@@ -195,6 +239,8 @@ func (edge browserEdge) writeDOT(output io.Writer, contexts bool) error {
 			label += " + unpositioned sites"
 		}
 		labels = append(labels, label)
+	} else if edge.steps != nil {
+		tooltip += "\nSource row unavailable; hollow origin marker is at the function border"
 	}
 	labelAttribute := "label"
 	if edge.from == edge.to {
@@ -204,9 +250,6 @@ func (edge browserEdge) writeDOT(output io.Writer, contexts bool) error {
 	}
 	caption := strings.Join(labels, "\n")
 	if edge.gridSource && caption != "" && edge.from != edge.to {
-		// Wide cards route from their border, not an interior row. Reserve a
-		// text-free gutter around the caption so the turning spline cannot cut
-		// through its first/last line on a tall fan-out. No evidence is dropped.
 		caption = " \n" + caption + "\n "
 	}
 	_, err := fmt.Fprintf(output, "  n%d -> n%d [%s=%q, style=%q, color=%q, fontcolor=%q, penwidth=%.1f, tooltip=%q",
@@ -215,6 +258,13 @@ func (edge browserEdge) writeDOT(output io.Writer, contexts bool) error {
 		return err
 	}
 	if _, err := fmt.Fprintf(output, ", tailport=%q, headport=%q", tail, head); err != nil {
+		return err
+	}
+	marker := "odot"
+	if source != "" {
+		marker = "dot"
+	}
+	if _, err := fmt.Fprintf(output, ", dir=both, arrowtail=%q, URL=%q", marker, fmt.Sprintf("call:%d:%d:%s", edge.from, edge.to, source)); err != nil {
 		return err
 	}
 	if edge.backward {
@@ -281,9 +331,9 @@ func localRecursionNotes(edges []browserEdge, functions []model.Function, contex
 	return notes
 }
 
-// A single invocation can anchor its arrow at that exact row. Repeated calls
-// keep one bundled route with explicit site references instead of pretending
-// that all invocations occur at the first row (or reintroducing parallel lines).
+// Resolve positions in stable display order. Unknown sites remain incomplete;
+// they must never borrow the first known row's position. Nonrecursive drawing
+// splits relationships by site before using these positions as source ports.
 func (edge browserEdge) flowSites() ([]model.FlowStep, bool) {
 	if edge.steps == nil {
 		return nil, false

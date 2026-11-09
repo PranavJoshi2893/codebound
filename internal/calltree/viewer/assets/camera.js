@@ -142,6 +142,7 @@ window.CodeboundCamera = class {
     if (this.level.value !== percentage) this.level.value = percentage;
     this.zoomIn.disabled = this.scale >= 4;
     this.zoomOut.disabled = this.scale <= Math.min(0.1, this.fitScale());
+    this.viewport.dispatchEvent(new Event("codebound:camera"));
   }
 
   zoomAt(factor, x, y) {

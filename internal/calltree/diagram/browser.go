@@ -14,8 +14,9 @@ import (
 
 // BrowserOptions controls presentation only; exports and analysis stay intact.
 type BrowserOptions struct {
-	Contexts bool
-	Focus    int // -1 shows everything; otherwise show this function's direct calls/callers.
+	Contexts          bool
+	Focus             int  // -1 shows everything; otherwise show this function's direct calls/callers.
+	HideRegistrations bool // Zero value keeps the secondary wiring layer visible.
 }
 
 // WriteBrowserDOT reuses declaration identities, incident calls, and relationship
@@ -25,36 +26,13 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 	if len(index.Functions) == 0 || options.Focus < -1 || options.Focus >= len(index.Functions) {
 		return fmt.Errorf("invalid graph focus: %d", options.Focus)
 	}
-	var visible, calls []int
-	var included map[int]int
-	if options.Focus >= 0 {
-		calls = index.incident[index.offsets[options.Focus]:index.offsets[options.Focus+1]]
-		included = map[int]int{options.Focus: 0}
-		pairs := make(map[[2]int]bool)
-		for _, id := range calls {
-			call := index.Calls[id]
-			pair := [2]int{call.From, call.To}
-			if !pairs[pair] {
-				pairs[pair] = true
-				included[call.From]++
-				if call.From != call.To {
-					included[call.To]++
-				}
-			}
-		}
-		for id := range included {
-			visible = append(visible, id)
-		}
-		sort.Ints(visible)
-	} else {
-		visible = make([]int, len(index.Functions))
-		for id := range visible {
-			visible[id] = id
-		}
-	}
+	selection := index.selectBrowser(options)
+	visible, calls, included := selection.visible, selection.calls, selection.includedCalls
 	edges := index.browserEdges(calls, options.Focus >= 0)
 	index.compactBrowserFanout(edges, visible)
+	registrationFeedback := index.registrationFeedback(edges, selection.registrations)
 	recursion := localRecursionNotes(edges, index.Functions, options.Contexts)
+	registrationNotes := index.registrationNotes(selection.registrations, registrationFeedback)
 	boundary := make(map[int]bool)
 	if options.Contexts {
 		for _, edge := range edges {
@@ -90,6 +68,9 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 		if phase := index.phase(id).caption(); phase != "" {
 			label += "\n" + phase
 		}
+		if index.registeredOnly[id] {
+			label += "\nREGISTRATION ONLY · dispatch unresolved"
+		}
 		color, fill := "#94a3b8", "white"
 		penwidth := "1"
 		if id == 0 {
@@ -104,6 +85,16 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 				label += "\n" + summary
 			}
 		}
+		if function.Flow == nil {
+			var findings []string
+			for _, notes := range registrationNotes[id] {
+				findings = append(findings, notes...)
+			}
+			sort.Strings(findings)
+			for _, finding := range findings {
+				label += "\n" + finding
+			}
+		}
 		tooltip := function.Name + "\n" + function.Package + "\n" + function.File + ":" + strconv.Itoa(function.Line)
 		if function.Layer != "" {
 			tooltip += "\nLayer: " + function.Layer
@@ -113,13 +104,18 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 			label += fmt.Sprintf("\n+%d links", hidden)
 			tooltip += fmt.Sprintf("\n%d other call relationships hidden", hidden)
 		}
+		if options.Focus >= 0 && !options.HideRegistrations && index.registrationRelations[id] > selection.includedRegistrations[id] {
+			hidden := index.registrationRelations[id] - selection.includedRegistrations[id]
+			label += fmt.Sprintf("\n+%d route links", hidden)
+			tooltip += fmt.Sprintf("\n%d other registration links hidden", hidden)
+		}
 		line := output.AvailableBuffer()
 		line = append(line, "  n"...)
 		line = strconv.AppendInt(line, int64(id), 10)
 		line = append(line, " [label="...)
 		if function.Flow != nil {
 			line = append(line, '<')
-			line = append(line, renderFlowLabel(label, function, options.Contexts, id == 0, recursion[id], index.layouts[id])...)
+			line = append(line, renderFlowLabel(label, function, options.Contexts, id == 0, recursion[id], index.layouts[id], id, registrationNotes[id])...)
 			line = append(line, ">, margin=0"...)
 		} else {
 			line = strconv.AppendQuote(line, label)
@@ -154,6 +150,11 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 	}
 	for _, edge := range edges {
 		if err := edge.writeDOT(output, options.Contexts); err != nil {
+			return err
+		}
+	}
+	for _, id := range selection.registrations {
+		if err := index.writeRegistrationDOT(output, id, registrationFeedback[id]); err != nil {
 			return err
 		}
 	}

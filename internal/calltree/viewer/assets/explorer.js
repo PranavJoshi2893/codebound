@@ -10,6 +10,8 @@
   let data;
   let incoming;
   let outgoing;
+  let registeredBy;
+  let registers;
   let selected = 0;
   let searchText;
 
@@ -132,6 +134,30 @@
     }
   }
 
+  function registrationSection(title, routes, direction) {
+    if (!routes.length) return;
+    details.append(element("h3", title));
+    details.append(element("p", "Route configuration only — registration does not invoke the handler or pass request context.", "muted"));
+    if (routes.some((route) => route.framework === "net/http")) {
+      details.append(element("p", "ServeMux patterns use Go 1.22+ semantics: GET also matches HEAD; ALL means no method restriction. Legacy GODEBUG=httpmuxgo121=1 changes pattern semantics; runtime settings are not inferred here.", "muted"));
+    }
+    details.append(paged(routes, (route) => {
+      const item = element("li");
+      item.append(element("strong", `Registers ${route.label}`));
+      const target = route[direction];
+      if (target >= 0) item.append(functionButton(target, true));
+      if (route.issue) item.append(element("p", route.issue, "muted"));
+      const evidence = element("details");
+      evidence.append(element("summary", "Registration evidence"));
+      evidence.append(element("p", `${route.framework} · ${route.location}${route.site ? ` · ${route.site}` : ""}`));
+      evidence.append(element("p", `Declared pattern: ${route.declared_pattern || "unknown"}`));
+      evidence.append(element("p", `Router allocation/context: ${route.mux}`));
+      for (const origin of route.provenance || []) evidence.append(element("p", `Prefix ${origin.pattern || "unknown"} · ${origin.location}`));
+      item.append(evidence);
+      return item;
+    }, "route registrations", "ul", "route-list"));
+  }
+
   function contextSection(info) {
     details.append(element("h3", "How this function uses context"));
     if (!info || (!(info.parameters || []).length && !(info.operations || []).length)) {
@@ -172,8 +198,11 @@
     details.append(element("p", fn.package, "muted"));
     details.append(element("p", `${fn.file}:${fn.line}`, "muted"));
     if (fn.layer) details.append(element("p", `Detected architecture layer: ${fn.layer}`, "muted"));
+    if ((data.registered_only || []).includes(id)) details.append(element("p", "Registration only: shown for route configuration; no invocation edge is recorded in this call tree. Registration does not prove request dispatch.", "muted"));
     callSection("Called by — who can reach this function", incoming[id], "from");
     callSection("Calls — where to go next", outgoing[id], "to");
+    registrationSection("Registers routes", registers[id], "to");
+    registrationSection("Registered by", registeredBy[id], "from");
     contextSection(fn.context);
     for (const button of list.children) {
       button.setAttribute("aria-pressed", String(Number(button.dataset.functionId) === id));
@@ -194,6 +223,19 @@
       if (!data.functions.length) throw new Error("No function details supplied");
       incoming = data.functions.map(() => []);
       outgoing = data.functions.map(() => []);
+      registeredBy = data.functions.map(() => []);
+      registers = data.functions.map(() => []);
+      for (const route of data.registrations || []) {
+        registers[route.from].push(route);
+        if (route.to >= 0) registeredBy[route.to].push(route);
+      }
+      const routeCount = (data.registrations || []).length;
+      delete data.registrations;
+      const registrationStatus = document.getElementById("registration-status");
+      if (data.registration_warnings?.length) {
+        registrationStatus.hidden = false;
+        registrationStatus.textContent = data.registration_warnings.join(" ");
+      }
       const seen = new Set();
       const relationships = new Set();
       let warnings = 0;
@@ -212,6 +254,7 @@
       delete data.calls;
       searchText = data.functions.map((fn) => `${fn.name} ${fn.package} ${fn.file}`.toLowerCase());
       overview.textContent = `Root: ${data.functions[0].name} · ${data.functions.length} functions · ${relationships.size} caller–callee relationships` +
+        (routeCount ? ` · ${routeCount} route registrations (not calls)` : "") +
         (warnings ? ` · ${warnings} call findings with architecture warnings` : "") + ". Possible paths, not a runtime trace.";
       overview.title = overview.textContent;
       search.disabled = false;
