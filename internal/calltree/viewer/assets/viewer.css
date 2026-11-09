@@ -42,7 +42,7 @@ select { font: inherit; padding: 0.4rem; margin-left: 0.25rem; max-width: 100%; 
 .call-list { padding: 0; list-style: none; }
 .evidence { border-left: 3px solid #2563eb; padding-left: 0.6rem; margin: 0.75rem 0; }
 .legend-line { display: inline-block; width: 2rem; border-top: 2px solid #172033; vertical-align: middle; margin-right: 0.4rem; }
-.legend-line.context { border-top: 2px dashed #2563eb; }
+.legend-line.context { border-top: 2px solid #2563eb; }
 [hidden] { display: none !important; }
 
 /* Image and safe HTML hit regions share the same pixel-space transform. */

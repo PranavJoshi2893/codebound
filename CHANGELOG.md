@@ -5,6 +5,24 @@ All notable changes to CodeBound will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com),
 and this project adheres to [Semantic Versioning](https://semver.org).
 
+## [v0.1.4-nightly.6] - 2026-11-09
+
+### Added
+- Source-derived execution blocks with evaluation order, branch/loop exits, goroutine and deferred-call scheduling, closure entries, and horizontal continuation panels inside function cards.
+- Shared raw call-path evidence with actual instruction identities, source locations, entry/exit references, and hidden context-creation facts for indirect relationships.
+- Regression coverage for closures, bound methods, framework callbacks, handler-to-service traversal, lifecycle grouping, layout geometry, and desktop/mobile browser navigation; optional read-only rebalancer checks.
+
+### Changed
+- Separate raw call-graph reachability from visible project-function projection so framework and wrapper nodes can be followed without becoming library-function cards.
+- Split browser package groups by entry/lifecycle, HTTP-request, and shared reachability using recorded dispatch boundaries, not function names; retain classification in focused views.
+- Compact tall terminal fan-outs, keep multi-column call-site captions clear of turning routes, and preserve local recursion markers and crossing-route breaks.
+- Rebuild application, analyzer, evidence, presentation, and UI boundaries with explicit dependency checks and shared workflow composition.
+
+### Fixed
+- Restore main-rooted HTTP callback paths through server goroutine closures, framework dispatch, and bound handler methods into their service calls.
+- Distinguish indirect relationships and later HTTP request dispatch from direct calls and route configuration; keep constructors as ordinary lifecycle calls.
+- Propagate supported context arguments through hidden paths and local closures without conflating startup and request contexts; retain unresolved origins and uncertainty rather than inventing bindings.
+
 ## [v0.1.4-nightly.5] - 2026-11-08
 
 ### Added

@@ -95,7 +95,18 @@
       const item = element("li");
       item.append(functionButton(call[direction], true));
       const notes = [];
+      if (call.path) {
+        notes.push(call.path.http_dispatch ?
+          "Possible HTTP request dispatch through hidden calls; not a direct invocation or route registration" :
+          "Indirect path through hidden calls; not a direct invocation");
+        notes.push("Execution mode and source row describe path entry; context bindings describe path exit.");
+        for (const [label, id] of [["Entry", call.path.entry], ["Exit", call.path.exit]]) {
+          const hop = data.evidence?.edges[id];
+          if (hop) notes.push(`${label}: ${data.evidence.nodes[hop.from].id} → ${data.evidence.nodes[hop.to].id} · ${hop.location || "no source position"} · ${hop.instruction || "no instruction"}`);
+        }
+      }
       if (call.through_interface) notes.push("Possible target through an interface");
+      if (call.dynamic) notes.push("Possible target of a function-value callback invocation");
       if (call.execution === "goroutine") notes.push("Launched in a goroutine (concurrently)");
       else if (call.execution === "deferred") notes.push("Deferred until the caller returns");
       else if (call.execution) notes.push(`Execution: ${call.execution}`);

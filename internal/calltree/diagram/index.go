@@ -18,6 +18,22 @@ type IndexedGraph struct {
 	offsets   []int
 	incident  []int
 	relations []int
+	sites     []map[string]indexedStep
+	layouts   []flowLayout
+	phases    []browserPhase
+}
+
+type indexedStep struct {
+	step  model.FlowStep
+	order int // Stable display/reference order, not execution order across blocks.
+}
+
+// Evidence remains shared; hidden nodes are not added to the presentation index.
+func (index *IndexedGraph) Evidence() *model.CallEvidence {
+	if index.graph == nil {
+		return nil
+	}
+	return index.graph.Evidence
 }
 
 // IndexGraph builds a root-first identity index and compact incident-call lists.
@@ -42,6 +58,23 @@ func IndexGraph(graph *model.Graph) *IndexedGraph {
 	for i := range graph.Calls {
 		call := &graph.Calls[i]
 		index.Calls[i] = IndexedCall{From: add(call.Caller), To: add(call.Callee), Call: call}
+	}
+	index.phases = index.lifecyclePhases()
+	index.sites = make([]map[string]indexedStep, len(index.Functions))
+	index.layouts = make([]flowLayout, len(index.Functions))
+	for id, function := range index.Functions {
+		index.layouts[id] = planFlowLayout(function.Flow)
+		if function.Flow == nil {
+			continue
+		}
+		index.sites[id] = make(map[string]indexedStep)
+		for _, scope := range function.Flow.Scopes {
+			for _, block := range scope.Blocks {
+				for _, step := range block.Steps {
+					index.sites[id][step.ID] = indexedStep{step: step, order: len(index.sites[id])}
+				}
+			}
+		}
 	}
 	index.offsets = make([]int, len(index.Functions)+1)
 	index.relations = make([]int, len(index.Functions))

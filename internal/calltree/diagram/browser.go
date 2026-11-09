@@ -7,6 +7,7 @@ import (
 	"path"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/PranavJoshi2893/codebound/internal/calltree/model"
 )
@@ -26,7 +27,6 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 	}
 	var visible, calls []int
 	var included map[int]int
-	filtered := index.graph
 	if options.Focus >= 0 {
 		calls = index.incident[index.offsets[options.Focus]:index.offsets[options.Focus+1]]
 		included = map[int]int{options.Focus: 0}
@@ -46,62 +46,84 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 			visible = append(visible, id)
 		}
 		sort.Ints(visible)
-		if options.Contexts {
-			filtered = &model.Graph{Root: index.Functions[options.Focus], Calls: make([]model.Call, len(calls))}
-			for i, id := range calls {
-				filtered.Calls[i] = *index.Calls[id].Call
+	} else {
+		visible = make([]int, len(index.Functions))
+		for id := range visible {
+			visible[id] = id
+		}
+	}
+	edges := index.browserEdges(calls, options.Focus >= 0)
+	index.compactBrowserFanout(edges, visible)
+	recursion := localRecursionNotes(edges, index.Functions, options.Contexts)
+	boundary := make(map[int]bool)
+	if options.Contexts {
+		for _, edge := range edges {
+			if index.Functions[edge.from].Package != index.Functions[edge.to].Package {
+				boundary[edge.from], boundary[edge.to] = true, true
 			}
 		}
 	}
 	output := bufio.NewWriter(writer)
 	fmt.Fprintln(output, `digraph CallTree {
-  graph [rankdir=TB, splines=polyline, nodesep=0.55, ranksep=0.8, pad=0.3, bgcolor="white", fontname="sans-serif", fontsize=11];
-  node [shape=box, style="rounded,filled", fillcolor="#f8fafc", color="#94a3b8", fontcolor="#172033", fontname="sans-serif", fontsize=13, margin="0.2,0.14"];
-  edge [color="#475569", fontcolor="#334155", fontname="sans-serif", fontsize=11, arrowsize=0.8];`)
-	nodeCount := len(index.Functions)
-	if options.Focus >= 0 {
-		nodeCount = len(visible)
-	}
-	for position := 0; position < nodeCount; position++ {
-		id := position
-		if options.Focus >= 0 {
-			id = visible[position]
+  graph [rankdir=LR, splines=spline, newrank=true, nodesep=0.6, ranksep=1.1, mclimit=4, remincross=true, pad=0.25, bgcolor="white", fontname="sans-serif", fontsize=11];
+  node [shape=box, style="rounded,filled", fillcolor="white", color="#94a3b8", fontcolor="#172033", fontname="sans-serif", fontsize=13, margin="0.16,0.1"];
+  edge [color="#64748b", fontcolor="#475569", fontname="sans-serif", fontsize=10, arrowsize=0.7];`)
+	// Flat package/lifecycle groups, only for multiple visible functions.
+	// Put its package caption on the first function: unlike cluster headings, node
+	// labels are protected from incoming/outgoing arrows by Graphviz's routing.
+	var packages []string
+	packageSeen := make(map[string]bool)
+	for _, id := range visible {
+		pkg := index.Functions[id].Package
+		if !packageSeen[pkg] {
+			packages = append(packages, pkg)
+			packageSeen[pkg] = true
 		}
+	}
+	captions := browserPackageCaptions(packages)
+	writeNode := func(id int, showPackage bool) error {
 		function := index.Functions[id]
-		label := function.Name + "\n" + shortPackage(function.Package)
-		color, fill := "#94a3b8", "#f8fafc"
+		label := function.Name
+		if showPackage && function.Package != "" {
+			label += "\n" + captions[function.Package]
+		}
+		if phase := index.phase(id).caption(); phase != "" {
+			label += "\n" + phase
+		}
+		color, fill := "#94a3b8", "white"
 		penwidth := "1"
 		if id == 0 {
-			label = "START HERE · root\n" + label
+			label = "ROOT · " + label
 			color, fill, penwidth = "#2563eb", "#dbeafe", "2.5"
 		}
-		if id == options.Focus {
-			label = "FOCUS\n" + label
-			if id != 0 {
-				color, fill, penwidth = "#b45309", "#fef3c7", "2.5"
-			}
+		if id == options.Focus && id != 0 {
+			color, fill, penwidth = "#b45309", "#fef3c7", "2.5"
 		}
-		if function.Layer != "" {
-			label += "\nLayer: " + function.Layer
-		}
-		if options.Contexts {
-			summaries := contextFunctionSummary(function.Context)
-			for _, summary := range summaries[:min(3, len(summaries))] {
+		if options.Contexts && function.Flow == nil {
+			for _, summary := range browserContextSummary(function.Context, id == 0) {
 				label += "\n" + summary
 			}
-			if len(summaries) > 3 {
-				label += fmt.Sprintf("\n+ %d context findings in details", len(summaries)-3)
-			}
-		}
-		if options.Focus >= 0 && index.relations[id] > included[id] {
-			label += fmt.Sprintf("\n+ %d other call relationships hidden", index.relations[id]-included[id])
 		}
 		tooltip := function.Name + "\n" + function.Package + "\n" + function.File + ":" + strconv.Itoa(function.Line)
+		if function.Layer != "" {
+			tooltip += "\nLayer: " + function.Layer
+		}
+		if options.Focus >= 0 && index.relations[id] > included[id] {
+			hidden := index.relations[id] - included[id]
+			label += fmt.Sprintf("\n+%d links", hidden)
+			tooltip += fmt.Sprintf("\n%d other call relationships hidden", hidden)
+		}
 		line := output.AvailableBuffer()
 		line = append(line, "  n"...)
 		line = strconv.AppendInt(line, int64(id), 10)
 		line = append(line, " [label="...)
-		line = strconv.AppendQuote(line, label)
+		if function.Flow != nil {
+			line = append(line, '<')
+			line = append(line, renderFlowLabel(label, function, options.Contexts, id == 0, recursion[id], index.layouts[id])...)
+			line = append(line, ">, margin=0"...)
+		} else {
+			line = strconv.AppendQuote(line, label)
+		}
 		line = append(line, ", color=\""...)
 		line = append(line, color...)
 		line = append(line, "\", fillcolor=\""...)
@@ -113,84 +135,25 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 		line = append(line, "\", tooltip="...)
 		line = strconv.AppendQuote(line, tooltip)
 		line = append(line, "];\n"...)
-		if _, err := output.Write(line); err != nil {
-			return err
-		}
+		_, err := output.Write(line)
+		return err
 	}
-	seen := make(map[dotCallID]bool)
-	callCount := len(index.Calls)
-	if options.Focus >= 0 {
-		callCount = len(calls)
-	}
-	for position := 0; position < callCount; position++ {
-		id := position
-		if options.Focus >= 0 {
-			id = calls[position]
+	for groupID, group := range index.browserGroups(visible) {
+		grouped := group.pkg != "" && len(group.nodes) > 1
+		if grouped {
+			fmt.Fprintf(output, "  subgraph cluster_package_%d {\n    graph [label=\"\", tooltip=%q, style=\"rounded,filled\", fillcolor=%q, color=\"#e2e8f0\", margin=14];\n", groupID, group.pkg+"\n"+group.phase.caption(), group.phase.fill())
 		}
-		indexed := index.Calls[id]
-		call := indexed.Call
-		from, to := indexed.From, indexed.To
-		label := "calls"
-		switch call.Execution {
-		case "goroutine":
-			label = "starts goroutine"
-		case "deferred":
-			label = "defers call until return"
-		}
-		if from == to {
-			label += " (recursive)"
-		}
-		style, color := "solid", "#475569"
-		if call.ThroughInterface {
-			label += "\npossible interface target"
-			style = "dotted"
-		}
-		if call.Violation != "" {
-			label += "\narchitecture warning"
-			color = "#b91c1c"
-		}
-		if options.Contexts {
-			for _, binding := range call.Contexts {
-				label += "\npasses " + binding.Parameter + "=" + contextIDsLabel(binding.IDs, binding.Unresolved)
+		for position, id := range group.nodes {
+			if err := writeNode(id, position == 0 || boundary[id]); err != nil {
+				return err
 			}
 		}
-		key := dotCallID{from: from, to: to, contextLabel: label, violation: call.Violation}
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		line := output.AvailableBuffer()
-		line = append(line, "  n"...)
-		line = strconv.AppendInt(line, int64(from), 10)
-		line = append(line, " -> n"...)
-		line = strconv.AppendInt(line, int64(to), 10)
-		line = append(line, " [label="...)
-		line = strconv.AppendQuote(line, label)
-		line = append(line, ", style=\""...)
-		line = append(line, style...)
-		line = append(line, "\", color=\""...)
-		line = append(line, color...)
-		line = append(line, "\", fontcolor=\""...)
-		line = append(line, color...)
-		line = append(line, "\", tooltip="...)
-		line = strconv.AppendQuote(line, call.Violation)
-		line = append(line, "];\n"...)
-		if _, err := output.Write(line); err != nil {
-			return err
+		if grouped {
+			fmt.Fprintln(output, "  }")
 		}
 	}
-	if options.Contexts {
-		ids := make(map[model.FunctionID]int, nodeCount)
-		if options.Focus >= 0 {
-			for _, id := range visible {
-				ids[index.Functions[id].Identity()] = id
-			}
-		} else {
-			for id, function := range index.Functions {
-				ids[function.Identity()] = id
-			}
-		}
-		if err := writeContextDOT(output, filtered, ids); err != nil {
+	for _, edge := range edges {
+		if err := edge.writeDOT(output, options.Contexts); err != nil {
 			return err
 		}
 	}
@@ -200,10 +163,67 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 	return output.Flush()
 }
 
+// Creation belongs to its owning function, not a separate graph. Forwarding is
+// shown on the existing call arrow. Only secondary local usage is abbreviated.
+func browserContextSummary(info *model.ContextInfo, root bool) []string {
+	if info == nil {
+		return nil
+	}
+	var summaries []string
+	seen := make(map[string]bool)
+	for _, operation := range info.Operations {
+		if !operation.CreatesContext() {
+			continue
+		}
+		label := "new " + contextIDsLabel(operation.IDs, operation.Unresolved)
+		if operation.Kind == "derive" || operation.Kind == "detach" || operation.Parent != "" || len(operation.ParentIDs) > 0 || operation.ParentUnresolved {
+			label = contextIDsLabel(operation.IDs, operation.Unresolved) + " ← " + contextIDsLabel(operation.ParentIDs, operation.ParentUnresolved)
+		}
+		label += " · " + shortContextTarget(operation.Target) + contextScopeLabel(operation)
+		if !seen[label] {
+			seen[label] = true
+			summaries = append(summaries, label)
+		}
+	}
+	if root {
+		for _, binding := range info.Bindings {
+			summaries = append(summaries, "input "+binding.Parameter+"="+contextIDsLabel(binding.IDs, binding.Unresolved))
+		}
+	}
+	var usage []string
+	for _, summary := range contextFunctionSummary(info) {
+		if strings.HasPrefix(summary, "cancel/stop ") || strings.HasPrefix(summary, "observes Done:") ||
+			strings.HasPrefix(summary, "gets Done channel:") || strings.HasPrefix(summary, "reads ") {
+			usage = append(usage, summary)
+		}
+	}
+	summaries = append(summaries, usage[:min(2, len(usage))]...)
+	if len(usage) > 2 {
+		summaries = append(summaries, fmt.Sprintf("+%d actions in details", len(usage)-2))
+	}
+	return summaries
+}
+
 func shortPackage(pkg string) string {
 	parent := path.Base(path.Dir(pkg))
 	if parent == "." || parent == "/" {
 		return pkg
 	}
 	return parent + "/" + path.Base(pkg)
+}
+
+func browserPackageCaptions(packages []string) map[string]string {
+	counts := make(map[string]int)
+	for _, pkg := range packages {
+		counts[shortPackage(pkg)]++
+	}
+	captions := make(map[string]string, len(packages))
+	for _, pkg := range packages {
+		caption := shortPackage(pkg)
+		if counts[caption] > 1 {
+			caption = pkg // Never disguise distinct modules with the same suffix.
+		}
+		captions[pkg] = caption
+	}
+	return captions
 }

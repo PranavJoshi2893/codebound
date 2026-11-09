@@ -1,11 +1,9 @@
 package calltree
 
 import (
-	"fmt"
 	"go/constant"
 	"go/token"
 	"go/types"
-	"path/filepath"
 	"time"
 
 	"golang.org/x/tools/go/ssa"
@@ -23,9 +21,10 @@ type contextInspector struct {
 	escaped          map[ssa.Value]bool
 	closureExecution map[*ssa.Function][]string
 	origins          map[string][]ssa.Value
+	sites            map[ssa.Instruction]string
 }
 
-func (a *Analysis) inspectContexts(function *ssa.Function) *contextInspector {
+func (a *Analysis) inspectContexts(function *ssa.Function, sites map[ssa.Instruction]string) *contextInspector {
 	inspector := contextInspector{
 		analysis:         a,
 		function:         function,
@@ -34,6 +33,7 @@ func (a *Analysis) inspectContexts(function *ssa.Function) *contextInspector {
 		escaped:          make(map[ssa.Value]bool),
 		closureExecution: make(map[*ssa.Function][]string),
 		origins:          make(map[string][]ssa.Value),
+		sites:            sites,
 	}
 	for _, parameter := range function.Params {
 		if isContextType(parameter.Type()) {
@@ -58,12 +58,12 @@ func (i *contextInspector) inspectFunction(function *ssa.Function, scope string)
 				i.inspectCall(instruction, scope)
 			case *ssa.UnOp:
 				if instruction.Op == token.ARROW {
-					i.inspectReceive(instruction.X, instruction.Pos(), scope, "channel receive")
+					i.inspectReceive(instruction.X, instruction.Pos(), scope, "channel receive", i.sites[instruction])
 				}
 			case *ssa.Select:
 				for _, state := range instruction.States {
 					if state.Dir == types.RecvOnly {
-						i.inspectReceive(state.Chan, state.Pos, scope, "select receive case")
+						i.inspectReceive(state.Chan, state.Pos, scope, "select receive case", i.sites[instruction])
 					}
 				}
 			}
@@ -92,6 +92,7 @@ func (i *contextInspector) inspectCall(site ssa.CallInstruction, scope string) {
 	operation := ContextOperation{
 		Target: callTarget(call), Location: i.location(site.Pos()), Scope: scope,
 		Execution: contextExecution(site),
+		Site:      i.sites[site],
 	}
 
 	if kind != "" {
@@ -136,7 +137,7 @@ func (i *contextInspector) inspectCall(site ssa.CallInstruction, scope string) {
 	}
 }
 
-func (i *contextInspector) inspectReceive(channel ssa.Value, position token.Pos, scope, detail string) {
+func (i *contextInspector) inspectReceive(channel ssa.Value, position token.Pos, scope, detail, site string) {
 	var origins []string
 	known := false
 	for _, source := range i.valueSources(channel) {
@@ -163,7 +164,7 @@ func (i *contextInspector) inspectReceive(channel ssa.Value, position token.Pos,
 		i.origins[origin] = values
 		i.info.Operations = append(i.info.Operations, ContextOperation{
 			Kind: "observe", Context: origin, Target: "context.Context.Done",
-			Detail: detail, Location: i.location(position), Scope: scope,
+			Detail: detail, Location: i.location(position), Scope: scope, Site: site,
 		})
 	}
 }
@@ -279,13 +280,5 @@ func isContextNamedType(valueType types.Type, name string) bool {
 }
 
 func (i *contextInspector) location(position token.Pos) string {
-	if !position.IsValid() {
-		return "unknown location"
-	}
-	source := i.analysis.program.Fset.Position(position)
-	file := source.Filename
-	if relative, err := filepath.Rel(i.analysis.dir, file); err == nil {
-		file = relative
-	}
-	return fmt.Sprintf("%s:%d:%d", file, source.Line, source.Column)
+	return i.analysis.sourceLocation(position)
 }

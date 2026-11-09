@@ -19,9 +19,9 @@
   let imageURL;
 
   function describe(options) {
-    const content = options.contexts ? "Calls + context" : "Call flow; context evidence hidden";
-    return options.focus !== null ? `${content} · Focus: ${options.name}. Only direct callers and callees shown; other relationships are hidden.` :
-      `${content} · Whole tree. Follow arrows from the blue START HERE root; click a function to select it.`;
+    const content = options.contexts ? "Calls + context · Blue labels show context passed on the call arrow" : "Call flow";
+    return options.focus !== null ? `${content} · Focus: ${options.name} · Direct links only; other relationships are hidden. +N links = hidden links.` :
+      `${content} · Start at ROOT. Inside a block read ↓, then follow its labeled exits. Shaded groups share a package.`;
   }
 
   function setStatus(text) {

@@ -43,6 +43,7 @@
   try {
     await waitFor(() => !fit.disabled);
     check(level.value === "100%", "Graph must start at readable natural size, not a graph-relative fit percentage");
+    check(document.querySelector(".graph-legend").textContent.includes("Inside a block: ↓ order"), "Ordered rows must be distinguished from the overall call-map layout");
     const initial = view();
     check(initial.scale > 0 && viewport.tabIndex === 0, "Graph must be visible and keyboard-focusable");
     check(document.documentElement.scrollWidth <= window.innerWidth + 1, "Initial layout must fit the screen without horizontal page scrolling");
@@ -192,6 +193,9 @@
     check(details.textContent.includes("detaching cancellation and deadlines"), "Detached contexts need a plain-language explanation");
     check(details.textContent.includes("Deferred until the caller returns"), "Deferred calls must be explained");
     check(details.textContent.includes("Architecture warning (naming heuristic)"), "Architecture warnings must retain their heuristic caveat");
+    check(details.textContent.includes("Possible HTTP request dispatch through hidden calls; not a direct invocation or route registration"), "Indirect HTTP dispatch must not look like startup registration or a direct call");
+    check(details.textContent.includes("framework.dispatch") && details.textContent.includes("framework.go:12") && details.textContent.includes("b0i2"), "Indirect call details must retain actual entry/exit evidence");
+    passed.push("indirect dispatch and actual call-site evidence");
     check(details.textContent.includes("worker.go:6") && details.textContent.includes("Technical evidence"), "Experts must retain source locations and API evidence");
     check(details.querySelectorAll(".evidence").length === 50, "Large context finding sets must not all be mounted at once");
     const moreEvidence = details.querySelector('[data-more-items="context findings"]');
@@ -275,12 +279,25 @@
       near(viewport.clientHeight, previousBounds.height, "Status and legend changes must not resize the canvas height");
     }
     await changeView(mode, "contexts", 3);
-    check(!document.getElementById("context-key").hidden && diagramStatus.textContent.includes("Calls + context"), "Context mode must reveal its distinct link legend");
+    async function checkLifecycle(query, rootShown) {
+      const response = await fetch(`calltree.svg?${query}`);
+      check(response.ok, "Lifecycle layout must render successfully");
+      const svg = new DOMParser().parseFromString(await response.text(), "image/svg+xml");
+      const nodes = [...svg.querySelectorAll("g.node")];
+      const text = (id) => nodes.find((node) => node.querySelector("title")?.textContent === `n${id}`)?.textContent || "";
+      check(text(1).includes("ENTRY / LIFECYCLE") && text(2).includes("HTTP REQUEST"), "Setup and request functions must retain different reachability captions");
+      check(Boolean(text(0)) === rootShown, "Lifecycle grouping must not pull unrelated functions into focused views");
+    }
+    await checkLifecycle("mode=contexts", true);
+    check(!document.getElementById("context-key").hidden && diagramStatus.textContent.includes("Calls + context"), "Context mode must reveal its link legend");
+    check(document.getElementById("context-key").textContent.includes("Blue: passes context") && diagramStatus.textContent.includes("on the call arrow"), "The graph must explain context on the existing call path, not separate dashed branches");
     await changeView(scope, "neighbors", 3);
     check(diagramStatus.textContent.includes("Focus: Worker.Run") && diagramStatus.textContent.includes("relationships are hidden"), "Focused views must name the center and disclose omitted relationships");
     const previousFocusSource = graph.src;
     nodeLayer.querySelector('[data-function-id="2"]').click();
     await waitFor(() => graph.src !== previousFocusSource && graph.complete && nodeLayer.children.length === 2);
+    await checkLifecycle("mode=contexts&focus=2", false);
+    passed.push("lifecycle grouping survives context and focused views");
     check(nodeLayer.querySelector('[data-function-id="0"]') === null, "Following a leaf in focused mode must hide the unrelated original root");
     check(details.querySelector("h2").textContent.includes("not markup"), "Graph navigation must preserve exact function identities");
     await changeView(scope, "all", 3);

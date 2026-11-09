@@ -3,12 +3,13 @@
 package model
 
 type Function struct {
-	Name    string       `json:"name"`
-	Package string       `json:"package"`
-	File    string       `json:"file"`
-	Line    int          `json:"line"`
-	Layer   string       `json:"layer,omitempty"`
-	Context *ContextInfo `json:"context,omitempty"`
+	Name    string        `json:"name"`
+	Package string        `json:"package"`
+	File    string        `json:"file"`
+	Line    int           `json:"line"`
+	Layer   string        `json:"layer,omitempty"`
+	Context *ContextInfo  `json:"context,omitempty"`
+	Flow    *FunctionFlow `json:"flow,omitempty"`
 }
 
 // Declaration identity is shared by call traversal, context flow, and rendering.
@@ -54,6 +55,7 @@ type ContextOperation struct {
 	ParentIDs        []string `json:"parent_ids,omitempty"`
 	Unresolved       bool     `json:"unresolved,omitempty"`
 	ParentUnresolved bool     `json:"parent_unresolved,omitempty"`
+	Site             string   `json:"site,omitempty"`
 }
 
 func (operation ContextOperation) CreatesContext() bool {
@@ -69,12 +71,16 @@ type Call struct {
 	Caller           Function         `json:"caller"`
 	Callee           Function         `json:"callee"`
 	ThroughInterface bool             `json:"through_interface"`
+	Dynamic          bool             `json:"dynamic,omitempty"`
 	Violation        string           `json:"violation,omitempty"`
 	Contexts         []ContextBinding `json:"contexts,omitempty"`
 	Execution        string           `json:"execution,omitempty"`
+	Site             string           `json:"site,omitempty"`
+	Path             *CallPath        `json:"path,omitempty"`
 }
 
 type Graph struct {
-	Root  Function `json:"root"`
-	Calls []Call   `json:"calls"`
+	Root     Function      `json:"root"`
+	Calls    []Call        `json:"calls"`
+	Evidence *CallEvidence `json:"evidence,omitempty"`
 }

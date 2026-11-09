@@ -73,7 +73,11 @@ window.CodeboundCamera = class {
     const height = this.imageHeight * this.scale;
     this.x = (this.width - width) / 2;
     this.y = (this.height - height) / 2;
-    if (node && width > this.width - 32) this.x = this.width / 2 - node.x * this.scale;
+    if (node && width > this.width - 32) {
+      // The call map runs left-to-right; start at its readable root rather than
+      // spending half the canvas on empty space to the left of that card.
+      this.x = this.selected === 0 ? 24 - this.nodes.get(0)[0] * this.scale : this.width / 2 - node.x * this.scale;
+    }
     if (node && height > this.height - 32) {
       this.y = this.selected === 0 ? 24 - this.nodes.get(0)[1] * this.scale : this.height / 2 - node.y * this.scale;
     }

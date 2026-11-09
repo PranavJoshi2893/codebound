@@ -7,6 +7,7 @@ func TestDeclarationIdentityIgnoresAnnotations(t *testing.T) {
 	annotated := function
 	annotated.Layer = "service"
 	annotated.Context = &ContextInfo{Parameters: []string{"ctx"}}
+	annotated.Flow = &FunctionFlow{Scopes: []FlowScope{{ID: "body"}}}
 	if function.Identity() != annotated.Identity() {
 		t.Fatal("annotations changed declaration identity")
 	}

@@ -80,7 +80,11 @@ func renderViewSVG(ctx context.Context, graph *diagram.IndexedGraph, options dia
 		}
 		return nil, fmt.Errorf("render graph with Graphviz (install dot or use --format dot/json): %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return embedNodeMap(svg.Bytes())
+	image, err := embedNodeMap(svg.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	return separateEdgeStrokes(image)
 }
 
 type graphNode struct {

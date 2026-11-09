@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/PranavJoshi2893/codebound/internal/calltree"
+	"github.com/PranavJoshi2893/codebound/internal/calltree/model"
 )
 
 //go:embed testdata/viewer_test.js
@@ -57,7 +58,14 @@ func TestBrowserGraphNavigation(t *testing.T) {
 		writer.WriteHeader(http.StatusNoContent)
 	})
 	root := calltree.Function{Name: "main", Package: "example", File: "main.go", Line: 1}
-	worker := calltree.Function{Name: "Worker.Run", Package: "example/worker", File: "worker.go", Line: 5,
+	root.Flow = &calltree.FunctionFlow{Scopes: []calltree.FlowScope{{ID: "body", Entry: 0, Blocks: []calltree.FlowBlock{{
+		ID: 0, Label: "entry", Exit: "return", Steps: []calltree.FlowStep{
+			{ID: "q0b0s1", Reference: "B0.1", Kind: "call", Label: "context.Background()"},
+			{ID: "q0b0s2", Reference: "B0.2", Kind: "go", Label: "Worker.Run(…)"},
+		},
+	}}}}}
+	root.Context = &calltree.ContextInfo{Operations: []calltree.ContextOperation{{Site: "q0b0s1", Kind: "create", Target: "context.Background", IDs: []string{"C1"}}}}
+	worker := calltree.Function{Name: "Worker.Run", Package: root.Package, File: "worker.go", Line: 5,
 		Context: &calltree.ContextInfo{
 			Parameters: []string{"ctx"},
 			Bindings:   []calltree.ContextBinding{{Parameter: "ctx", IDs: []string{"C1", "I1"}, Unresolved: true}},
@@ -74,10 +82,17 @@ func TestBrowserGraphNavigation(t *testing.T) {
 		})
 	}
 	graph := &calltree.Graph{Root: root, Calls: []calltree.Call{
-		{Caller: root, Callee: worker, ThroughInterface: true, Execution: "goroutine", Contexts: []calltree.ContextBinding{{Parameter: "ctx", IDs: []string{"C1"}}}},
-		{Caller: worker, Callee: leaf, Violation: "example architecture warning"},
+		{Caller: root, Callee: worker, Site: "q0b0s2", ThroughInterface: true, Execution: "goroutine", Contexts: []calltree.ContextBinding{{Parameter: "ctx", IDs: []string{"C1"}}}},
+		{Caller: worker, Callee: leaf, Path: &calltree.CallPath{Entry: 0, Exit: 1, HTTPDispatch: true}, Violation: "example architecture warning"},
 		{Caller: worker, Callee: worker, Execution: "deferred"},
 	}}
+	graph.Evidence = &model.CallEvidence{
+		Nodes: []model.EvidenceFunction{{ID: "example.Worker.Run", Visible: true}, {ID: "framework.dispatch"}, {ID: "example/repo.leaf", Visible: true}},
+		Edges: []model.EvidenceCall{
+			{From: 0, To: 1, Location: "worker.go:8", Instruction: "b0i1", HTTPDispatch: true},
+			{From: 1, To: 2, Location: "framework.go:12", Instruction: "b0i2"},
+		},
+	}
 	graph.Calls = append(graph.Calls, graph.Calls[0]) // Repeated evidence is shown once in the UI.
 	svg, err := RenderSVG(context.Background(), graph)
 	if err != nil {

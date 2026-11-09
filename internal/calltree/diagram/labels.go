@@ -86,11 +86,21 @@ func contextIDsLabel(ids []string, unresolved bool) string {
 
 func contextCallLabel(call model.Call) string {
 	var labels []string
+	if call.Path != nil {
+		if call.Path.HTTPDispatch {
+			labels = append(labels, "possible HTTP dispatch · indirect")
+		} else {
+			labels = append(labels, "indirect · via hidden calls")
+		}
+	}
 	if call.Violation != "" {
 		labels = append(labels, call.Violation)
 	}
 	if call.ThroughInterface {
 		labels = append(labels, "interface")
+	}
+	if call.Dynamic {
+		labels = append(labels, "possible callback target")
 	}
 	for _, binding := range call.Contexts {
 		labels = append(labels, binding.Parameter+"="+contextIDsLabel(binding.IDs, binding.Unresolved))

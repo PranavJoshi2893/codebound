@@ -8,8 +8,14 @@ type (
 	Graph            = model.Graph
 	Function         = model.Function
 	Call             = model.Call
+	CallPath         = model.CallPath
 	ContextInfo      = model.ContextInfo
 	ContextBinding   = model.ContextBinding
 	ContextOperation = model.ContextOperation
+	FunctionFlow     = model.FunctionFlow
+	FlowScope        = model.FlowScope
+	FlowBlock        = model.FlowBlock
+	FlowStep         = model.FlowStep
+	FlowBranch       = model.FlowBranch
 	functionID       = model.FunctionID
 )
