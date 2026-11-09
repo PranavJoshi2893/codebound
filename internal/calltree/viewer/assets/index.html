@@ -19,20 +19,28 @@
     <details id="reading-guide" open>
       <summary>Start here: how to read this view</summary>
       <ol>
-        <li><strong>Start at the root</strong> — the function you chose to analyze. Follow arrows from caller to callee (the function it may call).</li>
+        <li><strong>Start at the root.</strong> Follow the call map left to right. Inside a function, read each panel downward, then follow its labeled continuation or exit.</li>
         <li><strong>Click a function in the graph</strong> to select it. Choose <strong>Selected + neighbors</strong> to follow just its direct callers and calls, or search below.</li>
         <li><strong>Start with Call flow.</strong> Choose <strong>Calls + context</strong> only when you need cancellation, deadlines, and values passed across calls.</li>
       </ol>
-      <p class="muted">This is a map of possible calls from source code, not a runtime trace or execution order. Shared functions and recursion mean it is not always a strict tree.</p>
+      <p class="muted">Rows within one block preserve call evaluation order. Different blocks are alternative paths or continuations, not one top-to-bottom list. Function placement is not global execution order; this is not a runtime trace.</p>
       <details>
         <summary>Arrow and context legend</summary>
         <p><span class="legend-line" aria-hidden="true"></span><strong>Solid arrow:</strong> A → B means A may call B.</p>
-        <p><strong>Dotted arrow:</strong> a possible call target through an interface. <strong>Red arrow:</strong> a naming-based architecture warning, not proof of a bug.</p>
-        <p><span class="legend-line context" aria-hidden="true"></span><strong>Blue dashed arrow:</strong> a function creates a context, or a parent context leads to a child. It is not another function call.</p>
-        <p><strong>Boxes</strong> are functions. <strong>Note-shaped markers</strong> are context creation sites, with their possible cancellation conditions.</p>
+        <p>Forward calls leave the right side of a card and enter the next card’s header from the left. Calls back to another function use the opposite side. White breaks separate crossing routes; a crossing is not a junction.</p>
+        <p><strong>↻ recursive call</strong> stays at its execution row and re-enters the same function’s entry, rather than drawing a tangled exterior loop. Its context bindings remain at that row.</p>
+        <p><strong>Dotted arrow:</strong> a possible interface or function-value callback target. <strong>Dashed arrow:</strong> an indirect path through hidden calls, not a direct invocation. <strong>Possible HTTP dispatch:</strong> a recorded server-to-handler boundary, not route registration. <strong>Red arrow:</strong> a naming-based architecture warning, not proof of a bug.</p>
+        <p><span class="legend-line context" aria-hidden="true"></span><strong>Blue call arrow:</strong> context travels from the caller to the callee on this same arrow, not a separate path. Red warnings can override its color; the context label remains blue.</p>
+        <p><strong>Boxes</strong> are functions. Shaded groups share a package and, when HTTP dispatch is present, a reachability phase: blue <strong>ENTRY / LIFECYCLE</strong> includes setup, route registration and server/shutdown logic; teal <strong>HTTP REQUEST</strong> is reached after dispatch; amber <strong>SHARED</strong> is reachable from both. These are possible paths, not a runtime schedule. Focused views retain the whole tree’s classification.</p>
+        <p>Tall terminal branches may occupy the next layout column to reduce empty space. Horizontal distance and vertical placement do not define execution order; block exits and call-site references do.</p>
+        <p><code>new C1</code> marks creation inside its function. <code>C2 ← C1</code> marks a derived context in that function. Cancellation details remain in the explorer.</p>
+        <p><code>B0.2</code> identifies step 2 in block B0. True/false exits split and rejoin paths; <strong>loop</strong> marks a back edge. Only calls and channel actions are listed; ordinary value updates are omitted.</p>
+        <p>Alternative branches and independent closures share horizontal space. This does not mean they run concurrently. Long blocks use numbered continuation columns: read down one column, then follow <strong>continue →</strong> to the next step range. In multi-column cards, exterior call arrows name their exact step references instead of crossing neighbouring panels.</p>
+        <p><strong>Register defer</strong> schedules work, not its immediate execution. The deferred stack runs last-registered-first at exit, including repeated registrations in loops. <strong>go</strong> launches concurrently; it does not wait before the next row. Closure bodies have separate entries and run only when invoked, not when declared.</p>
         <p><code>ctx=C1</code> means this call passes context C1 into the callee’s <code>ctx</code> parameter.</p>
         <p><code>C1</code> identifies a creation site, not a unique runtime object. <code>I1</code> is an input created outside this tree. IDs are local to this analysis.</p>
         <p><strong>Possible / unknown:</strong> several origins may reach this point, or analysis could not trace an origin. This is uncertainty, not a confirmed bug.</p>
+        <p>One arrow summarizes calls between two functions. Combined context IDs are possible origins, not simultaneous values; <strong>partial</strong> means some variants lack binding evidence. An unlabeled call may still use context.</p>
         <p><strong>Observes Done:</strong> code receives from the cancellation channel; just getting <code>Done()</code> is weaker evidence. Neither proves the function stops.</p>
         <p><strong>Deferred:</strong> scheduled for when the function returns. <strong>Goroutine:</strong> launched concurrently. <strong>Interface:</strong> a possible implementation target.</p>
         <p class="muted">Cancellation conditions are possibilities, not observed end times. Architecture warnings use naming heuristics, not a verified architecture policy.</p>
@@ -55,7 +63,7 @@
   <div class="view-controls" role="group" aria-label="Diagram content">
     <label for="graph-mode">Show <select id="graph-mode"><option value="calls">Call flow (simple)</option><option value="contexts">Calls + context</option></select></label>
     <label for="graph-scope">Scope <select id="graph-scope"><option value="all">Whole tree</option><option value="neighbors">Selected + neighbors</option></select></label>
-    <p id="diagram-status" class="muted" role="status">Follow arrows from the blue START HERE root. Click any function to select it.</p>
+    <p id="diagram-status" class="muted" role="status">Start at ROOT. Read rows ↓ inside a block, then follow its labeled exits.</p>
   </div>
   <div class="controls" role="group" aria-label="Graph controls">
     <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out (-)" disabled>−</button>
@@ -67,11 +75,11 @@
     <noscript>Enable JavaScript to zoom and pan.</noscript>
   </div>
   <main id="viewport" tabindex="0" aria-label="Call graph viewer" aria-describedby="graph-help">
-    <img id="graph" alt="Diagram of possible function calls and context creation. Use the function explorer for text details." draggable="false">
+    <img id="graph" alt="Functions contain ordered call/control-flow sub-blocks. Cross-function arrows show possible calls and context passing. Use the function explorer for text details." draggable="false">
     <noscript><img src="calltree.svg" alt="Static call graph" class="static-graph"></noscript>
     <div id="graph-nodes" role="group" aria-label="Selectable graph functions"></div>
   </main>
-  <p class="graph-legend"><span class="root-key">Blue box: root</span> · <span class="selected-key">Amber corners: selected</span> · <span class="warning-key">Red arrow: architecture warning</span> · Dotted arrow: possible interface call<span id="context-key" hidden> · Blue dashed link: context creation/parentage (not a call)</span>. Possible paths, not execution order.</p>
+  <p class="graph-legend">Inside a block: ↓ order · Continue → next numbered column · Follow true/false/loop exits · Between functions: → may call · White gaps: crossings, not junctions · <code>go</code> concurrent · <code>defer</code> registered now, runs at exit (LIFO) · Dotted: interface/callback · Dashed: hidden call path · <span class="warning-key">Red: architecture warning</span><span id="context-key" hidden> · Blue: passes context · new: created here · ←: derived from</span>. Not a runtime trace.</p>
   </div>
   </div>
 </body>

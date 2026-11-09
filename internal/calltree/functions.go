@@ -3,6 +3,7 @@ package calltree
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"path/filepath"
 
 	"golang.org/x/tools/go/ssa"
@@ -11,16 +12,19 @@ import (
 type analyzedFunction struct {
 	description Function
 	contexts    *contextInspector
+	sites       map[ssa.Instruction]string
 }
 
 func (a *Analysis) analyzeFunction(function *ssa.Function) analyzedFunction {
 	description := a.describeFunction(function)
-	contexts := a.inspectContexts(function)
+	flow, sites := a.inspectExecution(function)
+	description.Flow = flow
+	contexts := a.inspectContexts(function, sites)
 	if contexts != nil {
-		contexts.owner = description.id()
+		contexts.owner = description.Identity()
 		description.Context = &contexts.info
 	}
-	return analyzedFunction{description: description, contexts: contexts}
+	return analyzedFunction{description: description, contexts: contexts, sites: sites}
 }
 
 func (a *Analysis) findFunction(name string) (*ssa.Function, error) {
@@ -55,7 +59,7 @@ func (a *Analysis) projectDeclaration(function *ssa.Function) (*ast.FuncDecl, bo
 	return declaration, ok
 }
 
-// Only projectDeclaration-checked functions reach this conversion.
+// Only projectDeclaration-checked functions reach this visible conversion.
 func (a *Analysis) describeFunction(function *ssa.Function) Function {
 	declaration := function.Syntax().(*ast.FuncDecl)
 	position := a.program.Fset.Position(declaration.Pos())
@@ -70,6 +74,18 @@ func (a *Analysis) describeFunction(function *ssa.Function) Function {
 		Line:    position.Line,
 		Layer:   inferLayer(function.Pkg.Pkg.Path(), file),
 	}
+}
+
+func (a *Analysis) sourceLocation(position token.Pos) string {
+	if !position.IsValid() {
+		return "unknown location"
+	}
+	source := a.program.Fset.Position(position)
+	file := source.Filename
+	if relative, err := filepath.Rel(a.dir, file); err == nil {
+		file = relative
+	}
+	return fmt.Sprintf("%s:%d:%d", file, source.Line, source.Column)
 }
 
 func functionName(function *ast.FuncDecl) string {

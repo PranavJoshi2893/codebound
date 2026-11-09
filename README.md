@@ -1,4 +1,4 @@
-# CodeBound `v0.1.4-nightly.5`
+# CodeBound `v0.1.4-nightly.6`
 
  **CodeBound is an opinionated Go CLI for scaffolding consistent project structures and building toward enforceable architectural boundaries.**
 
@@ -10,7 +10,7 @@
 codebound create example-api
 ```
 
- > **Prerelease Notice:** CodeBound is currently in **v0.1.4-nightly.5**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
+ > **Prerelease Notice:** CodeBound is currently in **v0.1.4-nightly.6**. APIs, project layouts, and behaviors may change as the project evolves and we gather community feedback.
 
 ---
 
@@ -46,7 +46,7 @@ codebound create example-api
  Make sure you have [Go](<https://go.dev/>) installed, then install CodeBound:
 
 ```
-go install github.com/PranavJoshi2893/codebound@v0.1.4-nightly.5
+go install github.com/PranavJoshi2893/codebound@v0.1.4-nightly.6
 ```
 
  Verify the installation:
@@ -174,6 +174,25 @@ down callback and interface targets. These edges still represent possible calls,
 not a runtime trace or proof that a call happens. Reflection and `unsafe` can
 limit accuracy.
 
+Hidden nodes are still traversed. Dashed **indirect** relationships cross hidden
+closures, wrappers, or framework functions; they are not direct calls between the
+displayed functions. **Possible HTTP dispatch** marks paths crossing the actual
+`net/http` server-to-handler invocation, separately from route configuration.
+Constructors remain ordinary startup calls. Library operations such as SQL calls
+stay execution rows without expanding library internals into diagram cards.
+
+JSON includes shared `evidence` nodes/edges and each indirect call's `path.entry`
+and `path.exit` edge indexes. All hidden-only walks between those edges are retained,
+including alternatives and cycles; `http_dispatch` selects walks crossing that
+boundary (false selects those without it). Evidence records actual SSA instruction
+addresses and source locations, even for synthetic calls without source positions.
+Hidden context-creation facts stay in the evidence so their origin IDs remain
+traceable without adding library-function cards.
+An indirect relationship's `site` and `execution` identify its entry, while context
+bindings describe the exit arguments. Unsupported origins remain unresolved, not
+assumed to inherit a startup or request context. The browser details show the entry
+and exit evidence; JSON retains the complete shared corridors.
+
 #### How the call tree works
 
 1. **Read the source.** Load and type-check the selected Go packages and their
@@ -184,7 +203,8 @@ limit accuracy.
    immediately. For callbacks and interface methods, VTA follows which function
    values and concrete types can reach the call site.
 4. **Show the project graph.** Starting at the selected root (usually `main`),
-   follow calls to named project functions, annotate architecture boundaries, and
+   follow raw calls through hidden nodes, project named project functions,
+   annotate direct architecture boundaries, and
    export the result to the browser, DOT, or JSON.
 
 For example, the generated project contains:
@@ -211,12 +231,52 @@ Naming-based architecture checks annotate calls in every output format:
   configurable architecture policy or an enforcement gate; findings do not
   change the command's exit status.
 
+### Execution order inside function blocks
+
+The browser keeps the package grouping and function-to-function map, but each
+function now contains small **control-flow blocks**. Start at the entry block,
+read its rows downward, then follow its labeled exits:
+
+- **True / false** preserve alternative paths and joins, including short-circuit
+  conditions, switches, early returns, and select dispatch.
+- **Loop → Bn** explicitly returns to an earlier block. Block placement and block
+  numbers are addresses, not a global execution sequence.
+- **go** launches concurrent work; the caller continues without waiting.
+- **Register defer** schedules work. The **deferred stack** runs in reverse
+  registration order at exit; branches and loops determine which registrations
+  actually happened. Panic exits unwind the stack too; a possible recovered-panic
+  entry is labeled separately, not inserted into the normal sequential path.
+- **Closures** have separately labeled entries. Declaration does not execute
+  their bodies; local call/spawn/defer rows identify a known closure target.
+
+Order comes from SSA instructions and control-flow edges, not line sorting:
+`outer(inner())` shows `inner()` first. Rows cover calls and channel actions, not
+every value assignment or implicit runtime operation. External calls are shown
+as steps but their bodies are not expanded. This is possible source execution
+flow, not a runtime trace or a total ordering between goroutines.
+
+Function cards use up to three horizontal columns instead of stacking everything:
+alternative branches share a row, their joins sit below all incoming paths, and
+independent closure panels can sit beside the body. This placement does not imply
+concurrent execution. Long straight-line blocks use contiguous, numbered step
+ranges; read down a range, then follow **continue → Bn.step** to the next column.
+Only the last range shows the actual return/branch/loop exit. Block IDs, call-site
+IDs, context positions, and the analysis evidence are unchanged.
+
+Single-column cards attach single-site arrows to their call row. Multi-column
+cards use exterior arrows with exact step references, so connections cannot cut
+through neighbouring panels. Repeated calls share one route with
+references such as **B0.2, B3.1**, rather than incorrectly attaching every call to
+the first site. Context notes stay at their corresponding step, including inside
+closures and deferred registrations. JSON gains optional `flow` and `site`
+evidence; the detailed DOT export keeps its existing presentation.
+
 ### Context usage in the call tree
 
-The DOT graph and the browser's **Calls + context** mode use a **hybrid lifecycle
-view**: usage stays inside each function box, and existing call arrows carry the
-context IDs being passed.
-Only context creation and derivation sites get separate lifecycle markers.
+The browser's **Calls + context** mode uses one diagram: context travels along
+the existing function-to-function call arrows, with creation and derivation
+shown inside the owning function. There are no separate context branches.
+Detailed DOT exports also include standalone lifecycle markers.
 No extra CLI flag is needed; the browser starts with a simpler call-only map.
 
 The HTML viewer opens with a **Start here** reading guide and an arrow/context
@@ -228,20 +288,39 @@ inspection.
 Large call/finding lists initially render 50 items with explicit **Show next**
 controls, so the dashboard stays responsive without discarding evidence.
 
-The **diagram itself starts with a simple call flow**: a blue **START HERE** root,
-compact function boxes, and arrows labeled **calls**, **starts goroutine**, or
-**defers call until return**. Dotted arrows identify possible interface targets;
-red arrows explicitly label naming-based architecture warnings. Full paths and
-verbose context findings do not crowd this initial view. These browser-only
-presentation changes do not alter DOT/JSON exports.
+The **diagram starts with a left-to-right call map** from a blue **ROOT**;
+execution rows inside each function still read top-to-bottom.
+Functions in the same package share one light group, with the package named once
+on its first function; single-function packages keep a subtitle without a group.
+When the graph contains recorded HTTP dispatch, package groups are split into
+**ENTRY / LIFECYCLE** (blue), **HTTP REQUEST** (teal), and **SHARED · ENTRY + HTTP**
+(amber). Entry-side work includes setup, route registration, and server/shutdown
+logic. Request classification propagates only after a recorded dispatch boundary;
+shared functions retain both possibilities. No function names are used to assign
+these captions, and focused views retain the full tree's classification.
+
+Tall, private terminal branches can use a spare adjacent layout column instead of
+forcing every sibling into one tall stack. Shared targets, feedback/recursive
+calls, dispatch boundaries, and package groups keep their relationships intact.
+Packing does not introduce calls or change execution order. Multi-column arrow
+captions reserve a text-free gutter so turning routes stay clear of their labels.
+
+Ordinary call arrows have no caption. **go** means concurrent, **defer** means on
+return, dotted arrows mean possible interface/callback targets, dashed arrows mean
+paths through hidden calls, and red arrows mean
+naming-based architecture warnings. Full evidence stays in the function details.
+These browser-only presentation changes do not alter DOT/JSON exports.
 
 Click a function directly in the diagram to select it (amber corner markers) and
 read its details. Choose **Selected + neighbors** to redraw just its direct callers and
-callees; click another node to keep following the flow. Hidden relationships are
-explicitly disclosed, so a focused view is not mistaken for the whole analysis.
+callees; click another node to keep following the flow. **+N links** counts hidden
+relationships, so a focused view is not mistaken for the whole analysis.
 **Whole tree** restores the complete map. Choose **Calls + context** to reveal
-context bindings and lifecycle markers, including within a focused view. Context
-evidence is hidden, not discarded, in simple mode. Zoom and pan keep clickable
+context bindings on blue call arrows, including within a focused view. Boundary
+functions show their package names at both ends. **new C1** marks creation inside
+a function; **C2 ← C1** marks derivation there. Context actions remain at their
+actual step within a control-flow block rather than being reordered by kind.
+Context evidence is hidden, not discarded, in simple mode. Zoom and pan keep clickable
 node regions aligned with the graph; keyboard users can tab to and activate nodes.
 Selection, hover, and keyboard focus use separated corner markers outside the
 SVG box, rather than drawing overlapping borders on its rounded outline.
@@ -264,14 +343,27 @@ main [starts C2; deferred stop C2]
   `Done()` channel.
 - **Call arrows** match actual SSA arguments to parameters, including interface
   receivers. Multiple possible inputs are labeled `possible`; unsupported flows
-  stay unresolved. Calls passing different IDs remain separate arrows.
-- **Lifecycle markers** show `START`, parent IDs, and possible cancellation
+  stay unresolved. In the browser, calls between the same pair of functions share
+  one arrow listing possible origins and call/go/defer variants. **partial**
+  marks missing binding evidence on some variants, not proof that no context is
+  passed. Detailed DOT exports
+  keep distinct context-passing arrows separate.
+- **Exported lifecycle markers** show `START`, parent IDs, and possible cancellation
   conditions: timeout/deadline, signals, parent cancellation, or a resolved
   cancel/stop call (including deferred calls). `WithoutCancel` explicitly detaches
   cancellation and deadlines. `Background` and `TODO` have no cancellation.
 
-Connectors use straight segments with bends where needed. Repeated equivalent
-call edges are drawn once, without dropping JSON analysis entries.
+Browser connectors use exterior left/right ports, with room between card columns
+for labels. Feedback calls leave the opposite side without forcing cyclic ranks;
+the local execution blocks and call-site references do not change. Positioned
+self-recursion appears as a **↻ recursive call → entry Bn** marker at its exact
+row, keeping per-site context bindings and scheduling without an exterior loop.
+Recursion without position evidence retains an explicit route. Dense graphs
+can still have crossings, but narrow white under-strokes distinguish these from
+junctions. Relationship evidence is retained, including the local recursion
+markers. DOT exports
+keep polygonal connectors. Browser aggregation does not drop explorer or JSON
+analysis entries.
 
 Full operation details remain in each function's optional `context` JSON field:
 
@@ -289,7 +381,7 @@ Full operation details remain in each function's optional `context` JSON field:
 
 Each JSON operation includes a source location and resolved `ids`, `parent_ids`,
 and uncertainty flags when applicable. Each call's optional `contexts` list
-records its context argument bindings. Lifecycle markers show their creation
+records its context argument bindings. Exported lifecycle markers show their creation
 locations. Findings distinguish incoming
 parameters, derived children, and independent contexts; constant timeouts are
 shown as durations, while runtime values are labeled `dynamic`. Calls made with
@@ -426,7 +518,7 @@ example-api/
 
  ## Current Status
 
- CodeBound is currently **`v0.1.4-nightly.5`**.
+ CodeBound is currently **`v0.1.4-nightly.6`**.
 
  ### Available
 
@@ -471,14 +563,19 @@ example-api/
 
 ### Code organization
 
-- `cmd/`: Cobra commands and orchestration; running without arguments opens the wizard.
+- `main.go`: process signals and exit status; one cancellation context covers every command.
+- `cmd/`: independent Cobra command constructors, argument parsing, terminal detection, and adapter composition; no global command state.
+- `internal/app/`: shared application workflows and narrow prompt, analysis, browser, and generation boundaries; no Cobra or Charm dependency.
 - `internal/tui/`: form, presentation, and answer collection only; no filesystem creation or Cobra dependency.
 - `internal/project/`: shared options, validation, and project-creation entry point; no Cobra or Charm dependency.
-- `internal/scaffold/`: existing generators and embedded templates, reused by both entry paths.
-- `internal/calltree/`: package loading, SSA/VTA analysis, graph data, architecture checks, and DOT encoding; no Cobra, HTTP, or Graphviz process dependency.
+- `internal/scaffold/`: generators and embedded blueprints; all templates compile into ordered plans before destination changes. Plans use confined, exclusive file creation, and external setup tools share a cancellable runner with bounded diagnostics.
+- `internal/calltree/`: package loading, SSA/VTA analysis, context propagation, and architecture checks; no presentation, HTTP, or Graphviz process dependency.
+- `internal/calltree/model/`: shared graph evidence and declaration identity, independent of the Go analysis engine.
+- `internal/calltree/diagram/`: DOT exports, browser presentation indexes, labels, and lifecycle presentation; depends on evidence, not the analyzer.
 - `internal/calltree/viewer/`: Graphviz SVG rendering and a local HTTP viewer with context-driven shutdown; no Cobra dependency.
 - `internal/calltree/viewer/assets/`: embedded HTML/CSS and separate camera, graph-request, and text-explorer controllers; no frontend build pipeline or external assets.
 - `internal/calltree/viewer/testdata/`: browser-only test scripts, not served by the production viewer.
+- `internal/architecture/`: executable import-boundary checks to keep these responsibilities separate.
 
 Run the checks with:
 
@@ -490,11 +587,20 @@ go vet ./...
 The Makefile also provides `make check`, `make test-race`, `make test-browser`,
 `make test-browser-mobile`, `make bench`, and `make deadcode`. The dead-code check
 uses a pinned Go tool and includes tests; it does not automatically delete
-exported APIs or reflective callbacks. Context-flow orchestration, the dependency solver, lifecycle reasoning,
-and presentation live in separate focused files inside `internal/calltree/`.
+exported APIs or reflective callbacks. Context-flow orchestration and the dependency
+solver stay in the analyzer; lifecycle presentation and DOT encoding live in `diagram/`.
 
-When Graphviz JSON output is available, tests also check rendered context-label
-positions for overlapping text.
+When Graphviz JSON output is available, tests also check rendered text overlaps,
+routes through labels, and tall-fanout compaction.
+
+Optional read-only checks against the rebalancer reference project:
+
+```sh
+CODEBOUND_REBALANCER_DIR=/path/to/rebalancer go test ./internal/calltree/diagram ./internal/calltree/viewer -run TestRebalancer -count=1 -v
+```
+
+Set `CODEBOUND_LAYOUT_ARTIFACTS` to an existing output directory to also save its
+call-only/context browser DOT and SVG files for visual inspection.
 
 Optional browser interaction tests use headless Firefox under the viewer's real
 security policy. With `firefox` in `PATH`, run:

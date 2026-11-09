@@ -1,12 +1,26 @@
 package create
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 )
+
+func createFiles(directory, mod string) error {
+	plan, err := projectPlan(mod)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return plan.Apply(context.Background(), root)
+}
 
 func TestGeneratedEnvPermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {

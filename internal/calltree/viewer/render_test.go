@@ -141,3 +141,72 @@ func TestGraphvizSelectableNodes(t *testing.T) {
 		t.Fatalf("Graphviz lost selectable function identities: %+v", nodes)
 	}
 }
+
+func TestGraphvizGroupedNodeIdentities(t *testing.T) {
+	if _, err := exec.LookPath("dot"); err != nil {
+		t.Skip("Graphviz is not installed")
+	}
+	root := calltree.Function{Name: "main", Package: "example/app"}
+	worker := calltree.Function{Name: "Run", Package: "example/worker"}
+	helper := calltree.Function{Name: "Helper", Package: root.Package}
+	graph := &calltree.Graph{Root: root, Calls: []calltree.Call{
+		{Caller: root, Callee: worker}, {Caller: worker, Callee: helper},
+	}}
+	svg, err := RenderSVG(context.Background(), graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := decodeNodeMetadata(t, svg)
+	if len(nodes) != 3 {
+		t.Fatalf("package grouping lost clickable functions: %+v", nodes)
+	}
+	names := map[int]string{0: "main", 1: "Run", 2: "Helper"}
+	for _, node := range nodes {
+		name, exists := names[node.ID]
+		if !exists || strings.Split(node.Label, "\n")[0] != name {
+			t.Fatalf("grouped layout changed function identities: %+v", nodes)
+		}
+		delete(names, node.ID)
+	}
+	for i, first := range nodes {
+		for _, second := range nodes[i+1:] {
+			if first.Bounds[0] < second.Bounds[2] && first.Bounds[2] > second.Bounds[0] &&
+				first.Bounds[1] < second.Bounds[3] && first.Bounds[3] > second.Bounds[1] {
+				t.Fatal("grouped functions must not have overlapping click targets")
+			}
+		}
+	}
+}
+
+func TestGraphvizExecutionBlocksRemainOneSelectableFunction(t *testing.T) {
+	if _, err := exec.LookPath("dot"); err != nil {
+		t.Skip("Graphviz is not installed")
+	}
+	root := calltree.Function{Name: "main", Package: "example/app", Flow: &calltree.FunctionFlow{Scopes: []calltree.FlowScope{{
+		ID: "body", Entry: 0, Blocks: []calltree.FlowBlock{
+			{ID: 0, Label: "entry", Steps: []calltree.FlowStep{{ID: "q0b0s1", Reference: "B0.1", Kind: "call", Label: `work(<source> & values)`}},
+				Exit: "branch", Condition: "ready && n < 2", Next: []calltree.FlowBranch{{To: 1, Label: "true"}, {To: 2, Label: "false"}}},
+			{ID: 1, Label: "if then", Exit: "jump", Next: []calltree.FlowBranch{{To: 0, BackEdge: true}}},
+			{ID: 2, Label: "if done", Exit: "return"},
+		},
+	}}}}
+	leaf := calltree.Function{Name: "work", Package: "example/worker"}
+	graph := &calltree.Graph{Root: root, Calls: []calltree.Call{{Caller: root, Callee: leaf, Site: "q0b0s1"}}}
+	svg, err := RenderSVG(context.Background(), graph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes := decodeNodeMetadata(t, svg)
+	if len(nodes) != 2 || nodes[0].ID != 0 || nodes[1].ID != 1 {
+		t.Fatalf("inner blocks must not replace or duplicate function click targets: %+v", nodes)
+	}
+	var document struct{ XMLName xml.Name }
+	if err := xml.Unmarshal(svg, &document); err != nil {
+		t.Fatalf("execution labels must remain valid inert SVG: %v", err)
+	}
+	for _, want := range []string{"B0.1", "B1", "B2", "loop", "return", "&lt;source&gt;"} {
+		if !strings.Contains(string(svg), want) {
+			t.Errorf("rendered execution block is missing %q", want)
+		}
+	}
+}

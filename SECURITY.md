@@ -9,6 +9,10 @@
   boundary. Traversal, separators, and Go keywords are rejected.
 - Template rendering finishes before a destination file is opened. Write and
   close errors are returned to the caller.
+- Every blueprint is compiled completely before project/module directories are
+  created. Files are applied in declared order; cancellation stops subsequent
+  writes and propagates to external setup commands. Tool diagnostics retain at
+  most 64 KiB, and inherited subprocess pipes have a bounded wait on cancellation.
 - Generated `.env` files have owner-only permissions (`0600` on Unix).
 - Go module paths cannot start with a dash, and `go mod init` uses an explicit
   argument separator so a path cannot be interpreted as a command flag.

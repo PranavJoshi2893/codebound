@@ -7,18 +7,18 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/PranavJoshi2893/codebound/internal/calltree"
+	"github.com/PranavJoshi2893/codebound/internal/calltree/diagram"
 )
 
 func TestViewCache(t *testing.T) {
 	renders := 0
-	cache := newViewCache(func(context.Context, calltree.BrowserOptions) ([]byte, error) {
+	cache := newViewCache(func(context.Context, diagram.BrowserOptions) ([]byte, error) {
 		renders++
 		return []byte("1234"), nil
 	})
 	cache.limit = 8
-	a, b, c := calltree.BrowserOptions{Focus: 0}, calltree.BrowserOptions{Focus: 1}, calltree.BrowserOptions{Focus: 2}
-	for _, options := range []calltree.BrowserOptions{a, b, a, c, a} {
+	a, b, c := diagram.BrowserOptions{Focus: 0}, diagram.BrowserOptions{Focus: 1}, diagram.BrowserOptions{Focus: 2}
+	for _, options := range []diagram.BrowserOptions{a, b, a, c, a} {
 		if _, err := cache.image(context.Background(), options); err != nil {
 			t.Fatal(err)
 		}
@@ -39,13 +39,13 @@ func TestViewCache(t *testing.T) {
 func TestViewCacheConcurrentRequestsAndCancellation(t *testing.T) {
 	var renders atomic.Int32
 	started, release := make(chan struct{}), make(chan struct{})
-	cache := newViewCache(func(context.Context, calltree.BrowserOptions) ([]byte, error) {
+	cache := newViewCache(func(context.Context, diagram.BrowserOptions) ([]byte, error) {
 		renders.Add(1)
 		close(started)
 		<-release
 		return []byte("svg"), nil
 	})
-	options := calltree.BrowserOptions{Focus: 1}
+	options := diagram.BrowserOptions{Focus: 1}
 	var group sync.WaitGroup
 	for range 8 {
 		group.Go(func() {
@@ -69,12 +69,12 @@ func TestViewCacheConcurrentRequestsAndCancellation(t *testing.T) {
 
 func TestViewCacheDoesNotRetainFailures(t *testing.T) {
 	renders := 0
-	cache := newViewCache(func(context.Context, calltree.BrowserOptions) ([]byte, error) {
+	cache := newViewCache(func(context.Context, diagram.BrowserOptions) ([]byte, error) {
 		renders++
 		return nil, errors.New("renderer failed")
 	})
 	for range 2 {
-		if _, err := cache.image(context.Background(), calltree.BrowserOptions{}); err == nil {
+		if _, err := cache.image(context.Background(), diagram.BrowserOptions{}); err == nil {
 			t.Fatal("renderer failures must be returned")
 		}
 	}
@@ -84,11 +84,11 @@ func TestViewCacheDoesNotRetainFailures(t *testing.T) {
 }
 
 func TestViewCacheEntryLimit(t *testing.T) {
-	cache := newViewCache(func(context.Context, calltree.BrowserOptions) ([]byte, error) {
+	cache := newViewCache(func(context.Context, diagram.BrowserOptions) ([]byte, error) {
 		return []byte("svg"), nil
 	})
 	for id := range maxCachedViews + 3 {
-		if _, err := cache.image(context.Background(), calltree.BrowserOptions{Focus: id}); err != nil {
+		if _, err := cache.image(context.Background(), diagram.BrowserOptions{Focus: id}); err != nil {
 			t.Fatal(err)
 		}
 	}

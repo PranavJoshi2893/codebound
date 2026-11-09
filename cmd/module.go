@@ -1,6 +1,3 @@
-/*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
@@ -8,33 +5,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type ModuleOptions struct {
-	Name string
-}
-
-func (o *ModuleOptions) Validate() error {
-	return module.ValidateName(o.Name)
-}
-
-var moduleCmd = &cobra.Command{
-	Use:   "module",
-	Short: "Create a new API module using the CodeBound structure",
-	Long:  `Create a new API module following the CodeBound project structure.`,
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-
-		modOpts := ModuleOptions{
-			Name: args[0],
-		}
-
-		if err := modOpts.Validate(); err != nil {
-			return err
-		}
-
-		return module.CreateAPIModule(modOpts.Name)
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(moduleCmd)
+func newModuleCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "module [name]",
+		Short: "Create a new API module using the CodeBound structure",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := module.ValidateName(args[0]); err != nil {
+				return err
+			}
+			cmd.SilenceUsage = true
+			return application(cmd).Module(cmd.Context(), args[0])
+		},
+	}
 }

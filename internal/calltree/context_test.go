@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/PranavJoshi2893/codebound/internal/calltree/diagram"
 )
 
 func TestContextFlowThroughProject(t *testing.T) {
@@ -103,7 +105,7 @@ func consume(ctx context.Context) {}
 		t.Fatal("context JSON is missing or not deterministic")
 	}
 	var dot bytes.Buffer
-	if err := WriteDOT(&dot, graph); err != nil {
+	if err := diagram.WriteDOT(&dot, graph); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{`ctx: C2`, "timeout: 5s", `observes Done`, "[deferred]", "[goroutine]"} {

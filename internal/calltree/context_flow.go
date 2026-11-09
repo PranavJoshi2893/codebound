@@ -33,10 +33,50 @@ type contextFlow struct {
 	functions   []*ssa.Function
 	owners      map[*ssa.Function]*contextInspector
 	expressions map[contextValueID]contextExpression
+	reachable   map[*ssa.Function]bool
 }
 
-func annotateContextFlow(ctx context.Context, callGraph *callgraph.Graph, graph *Graph, descriptions map[*ssa.Function]analyzedFunction, order []*ssa.Function, calls []contextCall) error {
+func (a *Analysis) annotateReachableContexts(ctx context.Context, callGraph *callgraph.Graph, raw *reachableCalls, useful map[*ssa.Function]bool, graph *Graph, descriptions map[*ssa.Function]analyzedFunction, order []*ssa.Function, calls []contextCall) error {
 	flow := newContextFlow(descriptions, order)
+	flow.reachable = make(map[*ssa.Function]bool, len(raw.functions))
+	for _, fn := range raw.functions {
+		flow.reachable[fn] = true
+	}
+	// Hidden functions participate in propagation. Visible owners' closures already
+	// share their inspector, captures, source IDs and execution rows.
+	for _, fn := range raw.functions {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !useful[fn] || flow.owners[fn] != nil {
+			continue
+		}
+		inspector := a.inspectContexts(fn, nil)
+		if inspector == nil {
+			continue
+		}
+		inspector.owner = Function{Name: fn.String()}.Identity()
+		flow.registerFunction(fn, inspector)
+		flow.registerSources(inspector)
+	}
+	if graph.Evidence != nil {
+		index := 0
+		for _, fn := range raw.functions {
+			if !useful[fn] {
+				continue
+			}
+			if _, visible := descriptions[fn]; !visible {
+				if inspector := flow.owners[fn]; inspector != nil && inspector.function == fn {
+					graph.Evidence.Nodes[index].Context = &inspector.info
+				}
+			}
+			index++
+		}
+	}
+	return flow.annotate(ctx, callGraph, graph, descriptions, order, calls)
+}
+
+func (flow *contextFlow) annotate(ctx context.Context, callGraph *callgraph.Graph, graph *Graph, descriptions map[*ssa.Function]analyzedFunction, order []*ssa.Function, calls []contextCall) error {
 	if len(flow.owners) == 0 {
 		return nil
 	}
@@ -61,17 +101,21 @@ func newContextFlow(descriptions map[*ssa.Function]analyzedFunction, order []*ss
 			continue
 		}
 		flow.registerFunction(function, info.contexts)
-		for _, operation := range info.contexts.info.Operations {
-			if !operation.createsContext() {
-				continue
-			}
-			key := contextSourceID{owner: info.description.id(), origin: operation.Context}
-			if _, exists := flow.sources[key]; !exists {
-				flow.sources[key] = fmt.Sprintf("C%d", len(flow.sources)+1)
-			}
-		}
+		flow.registerSources(info.contexts)
 	}
 	return flow
+}
+
+func (flow *contextFlow) registerSources(inspector *contextInspector) {
+	for _, operation := range inspector.info.Operations {
+		if !operation.CreatesContext() {
+			continue
+		}
+		key := contextSourceID{owner: inspector.owner, origin: operation.Context}
+		if _, exists := flow.sources[key]; !exists {
+			flow.sources[key] = fmt.Sprintf("C%d", len(flow.sources)+1)
+		}
+	}
 }
 
 func (flow *contextFlow) seedRootInputs(root *ssa.Function) {
@@ -86,10 +130,13 @@ func (flow *contextFlow) seedRootInputs(root *ssa.Function) {
 
 func (flow *contextFlow) collectArguments(callGraph *callgraph.Graph) {
 	for _, function := range flow.functions {
+		if flow.reachable != nil && !flow.reachable[function] {
+			continue
+		}
 		inspector := flow.owners[function]
 		if node := callGraph.Nodes[function]; node != nil {
 			for _, edge := range sortedEdges(node) {
-				if flow.owners[edge.Callee.Func] != nil {
+				if flow.owners[edge.Callee.Func] != nil && (flow.reachable == nil || flow.reachable[edge.Callee.Func]) {
 					flow.addArguments(edge, inspector)
 				}
 			}
@@ -122,19 +169,32 @@ func (flow *contextFlow) annotateFunctions(descriptions map[*ssa.Function]analyz
 		if info.contexts == nil {
 			continue
 		}
-		for _, parameter := range function.Params {
-			if values := flow.parameters[parameter]; values != nil {
-				info.contexts.info.Bindings = append(info.contexts.info.Bindings, values.binding(parameter.Name()))
-			}
+		flow.annotateInspector(function, info.contexts)
+	}
+	for _, function := range flow.functions {
+		if _, visible := descriptions[function]; visible {
+			continue
 		}
-		for index := range info.contexts.info.Operations {
-			operation := &info.contexts.info.Operations[index]
-			values := flow.resolveOrigin(info.contexts, operation.Context)
-			operation.IDs, operation.Unresolved = values.names(), values.unresolved || len(values.ids) == 0
-			if operation.Parent != "" {
-				parent := flow.resolveOrigin(info.contexts, operation.Parent)
-				operation.ParentIDs, operation.ParentUnresolved = parent.names(), parent.unresolved || len(parent.ids) == 0
-			}
+		inspector := flow.owners[function]
+		if inspector.function == function {
+			flow.annotateInspector(function, inspector)
+		}
+	}
+}
+
+func (flow *contextFlow) annotateInspector(function *ssa.Function, inspector *contextInspector) {
+	for _, parameter := range function.Params {
+		if values := flow.parameters[parameter]; values != nil {
+			inspector.info.Bindings = append(inspector.info.Bindings, values.binding(parameter.Name()))
+		}
+	}
+	for index := range inspector.info.Operations {
+		operation := &inspector.info.Operations[index]
+		values := flow.resolveOrigin(inspector, operation.Context)
+		operation.IDs, operation.Unresolved = values.names(), values.unresolved || len(values.ids) == 0
+		if operation.Parent != "" {
+			parent := flow.resolveOrigin(inspector, operation.Parent)
+			operation.ParentIDs, operation.ParentUnresolved = parent.names(), parent.unresolved || len(parent.ids) == 0
 		}
 	}
 }
@@ -156,9 +216,6 @@ func (flow *contextFlow) annotateCalls(graph *Graph, calls []contextCall) {
 			}
 			values := flow.resolveValue(inspector, value)
 			graph.Calls[call.index].Contexts = append(graph.Calls[call.index].Contexts, values.binding(parameter.Name()))
-		}
-		if len(graph.Calls[call.index].Contexts) > 0 && call.edge.Site != nil {
-			graph.Calls[call.index].Execution = contextExecution(call.edge.Site)
 		}
 	}
 }

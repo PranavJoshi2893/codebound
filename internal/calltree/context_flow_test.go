@@ -1,10 +1,13 @@
 package calltree
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/PranavJoshi2893/codebound/internal/calltree/diagram"
 )
 
 func TestContextIDsContinueThroughCalls(t *testing.T) {
@@ -81,10 +84,19 @@ func ignore(_, _ context.Context) {}
 	if len(graph.Calls) != 1 {
 		t.Fatal("missing ignore call")
 	}
-	label := functionLabel(graph.Calls[0].Callee)
+	label := contextDOTOutput(t, graph)
 	if !strings.Contains(label, "_: I1") || !strings.Contains(label, "_: I2") {
 		t.Fatalf("blank parameter names must not merge distinct argument positions: %s", label)
 	}
+}
+
+func contextDOTOutput(t *testing.T, graph *Graph) string {
+	t.Helper()
+	var output bytes.Buffer
+	if err := diagram.WriteDOT(&output, graph); err != nil {
+		t.Fatal(err)
+	}
+	return output.String()
 }
 
 func TestContextFlowPreservesBranchesAndUnknowns(t *testing.T) {

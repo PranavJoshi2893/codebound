@@ -10,19 +10,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PranavJoshi2893/codebound/internal/calltree"
+	"github.com/PranavJoshi2893/codebound/internal/calltree/diagram"
+	"github.com/PranavJoshi2893/codebound/internal/calltree/model"
 )
 
-func Handler(svg []byte, graph *calltree.Graph) http.Handler {
-	index := calltree.IndexGraph(graph)
+func Handler(svg []byte, graph *model.Graph) http.Handler {
+	index := diagram.IndexGraph(graph)
 	graphJSON, jsonError := json.Marshal(describeGraph(index))
-	views := newViewCache(func(ctx context.Context, options calltree.BrowserOptions) ([]byte, error) {
+	views := newViewCache(func(ctx context.Context, options diagram.BrowserOptions) ([]byte, error) {
 		return renderViewSVG(ctx, index, options)
 	})
 	mux := http.NewServeMux()
 	registerAssets(mux)
 	mux.HandleFunc("GET /calltree.svg", func(writer http.ResponseWriter, request *http.Request) {
-		options := calltree.BrowserOptions{Focus: -1}
+		options := diagram.BrowserOptions{Focus: -1}
 		switch request.URL.Query().Get("mode") {
 		case "", "calls":
 		case "contexts":
@@ -96,7 +97,7 @@ func protectLocalViewer(next http.Handler) http.Handler {
 }
 
 // Serve owns listener and stops gracefully when ctx is cancelled.
-func Serve(ctx context.Context, listener net.Listener, svg []byte, graph *calltree.Graph) error {
+func Serve(ctx context.Context, listener net.Listener, svg []byte, graph *model.Graph) error {
 	server := &http.Server{
 		Handler:           Handler(svg, graph),
 		ReadHeaderTimeout: 5 * time.Second,

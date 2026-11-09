@@ -3,17 +3,17 @@ package tui
 
 import (
 	"context"
-	"errors"
 	"io"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/PranavJoshi2893/codebound/internal/app"
 	"github.com/PranavJoshi2893/codebound/internal/project"
 )
 
-var ErrCancelled = errors.New("setup cancelled")
+var ErrCancelled = app.ErrCancelled
 
 // Run returns validated options after submission or ErrCancelled on cancellation.
 // File creation belongs to the caller, after the terminal has been restored.

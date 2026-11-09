@@ -13,7 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PranavJoshi2893/codebound/internal/calltree"
+	"github.com/PranavJoshi2893/codebound/internal/calltree/diagram"
+	"github.com/PranavJoshi2893/codebound/internal/calltree/model"
 )
 
 const (
@@ -51,11 +52,11 @@ func (b *limitedBuffer) Write(data []byte) (int, error) {
 }
 
 // RenderSVG requires Graphviz's dot executable. DOT/JSON exports do not.
-func RenderSVG(ctx context.Context, graph *calltree.Graph) ([]byte, error) {
-	return renderViewSVG(ctx, calltree.IndexGraph(graph), calltree.BrowserOptions{Focus: -1})
+func RenderSVG(ctx context.Context, graph *model.Graph) ([]byte, error) {
+	return renderViewSVG(ctx, diagram.IndexGraph(graph), diagram.BrowserOptions{Focus: -1})
 }
 
-func renderViewSVG(ctx context.Context, graph *calltree.IndexedGraph, options calltree.BrowserOptions) ([]byte, error) {
+func renderViewSVG(ctx context.Context, graph *diagram.IndexedGraph, options diagram.BrowserOptions) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, renderTimeout)
 	defer cancel()
 	dot := limitedBuffer{limit: maxDOTBytes}
@@ -79,7 +80,11 @@ func renderViewSVG(ctx context.Context, graph *calltree.IndexedGraph, options ca
 		}
 		return nil, fmt.Errorf("render graph with Graphviz (install dot or use --format dot/json): %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return embedNodeMap(svg.Bytes())
+	image, err := embedNodeMap(svg.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	return separateEdgeStrokes(image)
 }
 
 type graphNode struct {

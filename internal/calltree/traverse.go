@@ -9,78 +9,43 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// A frame remembers the next call to visit for one function, avoiding recursion.
-type traversalFrame struct {
-	function  *ssa.Function
-	edges     []*callgraph.Edge
-	nextIndex int
+// Raw reachability is independent of presentation. In particular a dependency,
+// closure, or synthetic wrapper is never a traversal barrier.
+type reachableCalls struct {
+	functions []*ssa.Function
+	out       map[*ssa.Function][]*callgraph.Edge
 }
 
-func (a *Analysis) collectCalls(ctx context.Context, graph *callgraph.Graph, root *ssa.Function) (*Graph, error) {
-	rootInfo := a.analyzeFunction(root)
-	result := &Graph{Root: rootInfo.description, Calls: []Call{}}
-	// A cached description also marks a function as discovered. Each function
-	// is converted and expanded once, even when many callers share it.
-	descriptions := map[*ssa.Function]analyzedFunction{root: rootInfo}
-	order := []*ssa.Function{root}
-	var contextCalls []contextCall
-	stack := []traversalFrame{{function: root, edges: sortedEdges(graph.Nodes[root])}}
-	for len(stack) > 0 {
+func walkCalls(ctx context.Context, graph *callgraph.Graph, root *ssa.Function) (*reachableCalls, error) {
+	raw := &reachableCalls{out: make(map[*ssa.Function][]*callgraph.Edge)}
+	pending := []*ssa.Function{root}
+	seen := make(map[*ssa.Function]bool)
+	for len(pending) > 0 {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		frame := &stack[len(stack)-1]
-		edge, ok := frame.nextEdge()
-		if !ok {
-			stack[len(stack)-1] = traversalFrame{}
-			stack = stack[:len(stack)-1]
+		fn := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if seen[fn] {
 			continue
 		}
-
-		calleeFunction := edge.Callee.Func
-		if _, ok := a.projectDeclaration(calleeFunction); !ok {
-			continue
-		}
-		callee, discovered := descriptions[calleeFunction]
-		if !discovered {
-			callee = a.analyzeFunction(calleeFunction)
-			descriptions[calleeFunction] = callee
-			order = append(order, calleeFunction)
-		}
-
-		throughInterface := edge.Site != nil && edge.Site.Common().IsInvoke()
-		caller := descriptions[frame.function]
-		result.Calls = append(result.Calls, Call{
-			Caller:           caller.description,
-			Callee:           callee.description,
-			ThroughInterface: throughInterface,
-			Violation:        boundaryViolation(caller.description, callee.description, throughInterface),
-		})
-		if caller.contexts != nil || callee.contexts != nil {
-			contextCalls = append(contextCalls, contextCall{edge: edge, index: len(result.Calls) - 1})
-		}
-		// Keep calls to already discovered functions (including recursion),
-		// but do not expand their bodies again.
-		if !discovered {
-			stack = append(stack, traversalFrame{
-				function: calleeFunction,
-				edges:    sortedEdges(graph.Nodes[calleeFunction]),
-			})
+		seen[fn] = true
+		raw.functions = append(raw.functions, fn)
+		edges := sortedEdges(graph.Nodes[fn])
+		raw.out[fn] = edges
+		for i := len(edges) - 1; i >= 0; i-- {
+			pending = append(pending, edges[i].Callee.Func)
 		}
 	}
-	if err := annotateContextFlow(ctx, graph, result, descriptions, order, contextCalls); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return raw, nil
 }
 
-func (f *traversalFrame) nextEdge() (*callgraph.Edge, bool) {
-	if f.nextIndex == len(f.edges) {
-		return nil, false
+func (a *Analysis) collectCalls(ctx context.Context, graph *callgraph.Graph, root *ssa.Function) (*Graph, error) {
+	raw, err := walkCalls(ctx, graph, root)
+	if err != nil {
+		return nil, err
 	}
-	edge := f.edges[f.nextIndex]
-	f.nextIndex++
-	return edge, true
+	return a.projectCalls(ctx, graph, raw, root)
 }
 
 // Preserve source order, with a stable tie-breaker for multiple possible targets.

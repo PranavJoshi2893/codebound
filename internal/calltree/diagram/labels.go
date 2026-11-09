@@ -1,15 +1,17 @@
-package calltree
+package diagram
 
 import (
 	"slices"
 	"strings"
+
+	"github.com/PranavJoshi2893/codebound/internal/calltree/model"
 )
 
 type contextObservation struct {
 	origin, scope string
 }
 
-func contextFunctionSummary(info *ContextInfo) []string {
+func contextFunctionSummary(info *model.ContextInfo) []string {
 	if info == nil {
 		return nil
 	}
@@ -82,13 +84,23 @@ func contextIDsLabel(ids []string, unresolved bool) string {
 	return label
 }
 
-func contextCallLabel(call Call) string {
+func contextCallLabel(call model.Call) string {
 	var labels []string
+	if call.Path != nil {
+		if call.Path.HTTPDispatch {
+			labels = append(labels, "possible HTTP dispatch · indirect")
+		} else {
+			labels = append(labels, "indirect · via hidden calls")
+		}
+	}
 	if call.Violation != "" {
 		labels = append(labels, call.Violation)
 	}
 	if call.ThroughInterface {
 		labels = append(labels, "interface")
+	}
+	if call.Dynamic {
+		labels = append(labels, "possible callback target")
 	}
 	for _, binding := range call.Contexts {
 		labels = append(labels, binding.Parameter+"="+contextIDsLabel(binding.IDs, binding.Unresolved))
@@ -106,7 +118,7 @@ func shortContextTarget(target string) string {
 	return target
 }
 
-func contextScopeLabel(operation ContextOperation) string {
+func contextScopeLabel(operation model.ContextOperation) string {
 	var labels []string
 	if operation.Execution != "" {
 		labels = append(labels, operation.Execution)
@@ -126,7 +138,7 @@ func contextScopeLabel(operation ContextOperation) string {
 	return " [" + strings.Join(labels, ", ") + "]"
 }
 
-func contextOperationDetails(operation ContextOperation) string {
+func contextOperationDetails(operation model.ContextOperation) string {
 	lines := []string{operation.Kind + ": " + operation.Target, "context: " + operation.Context}
 	for _, detail := range []string{operation.Parent, operation.Detail, operation.Location, operation.Execution, operation.Scope} {
 		if detail != "" {
