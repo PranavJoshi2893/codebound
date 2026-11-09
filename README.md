@@ -1,10 +1,14 @@
 # CodeBound `v0.1.4-nightly.7`
 
- **CodeBound is an opinionated Go CLI for scaffolding consistent project structures and building toward enforceable architectural boundaries.**
+**CodeBound is a Go CLI built to help reduce architectural entropy in AI-generated code.**
 
- Starting a new Go project often means recreating the same structure, configuration, server, router, database, and migration setup over and over.
+AI makes it easier to generate code, but keeping that code coherent as a project grows takes more than working functions. Inconsistent structure, blurred responsibilities, and unintended dependencies can make a codebase harder to understand and maintain.
 
- CodeBound gives you a consistent starting point from a single command:
+CodeBound helps developers start with a consistent foundation and inspect how their code connects through call-tree visualization, context-flow inspection, and architectural annotations.
+
+The goal is not to generate more code—it is to keep growing codebases understandable and aligned with their intended architecture.
+
+Start a new Go project:
 
 ```
 codebound create example-api
@@ -16,11 +20,17 @@ codebound create example-api
 
  ## Why CodeBound?
 
- Go makes it easy to build simple, maintainable projects, but teams and developers often end up recreating similar project structures manually.
+Here, **architectural entropy** means the gradual loss of consistency and clarity in a codebase: responsibilities spread across unrelated packages, dependencies bypass intended layers, and new code introduces competing patterns instead of following existing ones. This can happen with any code, but rapid AI-generated changes can make that drift harder to review.
 
- CodeBound provides an opinionated starting point for Go projects so you can spend less time setting up folders and more time building your application.
+CodeBound approaches this through:
 
- Instead of manually creating:
+- **A consistent starting point:** opinionated Go scaffolding gives new projects a predictable foundation.
+- **Visibility into existing code:** call-tree and context-flow inspection help you review how functions connect and where contexts are created and passed.
+- **Architectural feedback:** naming-based annotations highlight possible layer violations. Explicit, configurable boundaries and validation are longer-term goals, not current enforcement capabilities.
+
+CodeBound does not measure an entropy score or guarantee the quality of generated code. It provides structure and visibility to support human review, whether code is written by a developer, an AI tool, or both.
+
+For a new project, instead of manually creating:
 
 ```
 cmd/
@@ -546,17 +556,17 @@ example-api/
 └── migrations
 ```
 
- The goal is to provide a predictable foundation that can evolve as your application grows.
+The goal is to provide a predictable foundation that developers and AI coding tools can extend consistently as the application grows.
 
 ---
 
  ## Architectural Boundaries
 
- One of CodeBound's long-term goals is to help developers define and maintain **architectural boundaries** within their projects.
+Reducing architectural entropy means making intended boundaries explicit, so new code can be reviewed against the project's design rather than judged only by whether it compiles or passes tests.
 
- The project is still in its early stages, so this area is actively evolving.
+Today, CodeBound annotates possible layer violations in its call-tree analysis using naming-based heuristics. These annotations support review; they are not configurable policies or an enforcement gate, and findings do not change the command's exit status.
 
- The broader goal is to move beyond simply generating folders and help make architectural decisions **explicit and enforceable**.
+The long-term goal is to let developers define and validate **architectural boundaries**, helping keep both human-written and AI-generated changes aligned with the intended design. The project is still in its early stages, and that enforcement capability is not yet available.
 
 ---
 
@@ -592,14 +602,14 @@ example-api/
 
  ## Who Is CodeBound For?
 
- CodeBound is primarily aimed at:
+CodeBound is primarily aimed at:
 
- - Go developers starting new projects
-- Developers who prefer opinionated project structures
-- Teams that want consistency across Go projects
+- Go developers using AI coding tools who want to keep generated changes understandable and consistent
+- Teams reviewing existing Go projects for architectural drift and unintended dependencies
+- Developers starting new projects who want an opinionated, predictable foundation
 - Developers interested in making architectural boundaries explicit
 
- If you already have a project structure you like, CodeBound may not be useful to you — and that's okay. The goal is to provide a useful opinionated default rather than a universal architecture.
+You do not need to adopt CodeBound's scaffolding to inspect an existing Go project. The goal is to support architectural clarity, not impose a universal architecture or replace code review.
 
 ---
 
@@ -664,7 +674,7 @@ make test-browser-mobile
 - Propose improvements
 - Contribute code
 
- If you have an opinion about the generated project structure, **I'd especially like to hear it**.
+If you have examples of AI-generated changes that made a codebase harder to understand or maintain, **I'd especially like to hear what architectural feedback would have helped**.
 
 ---
 
@@ -677,6 +687,7 @@ make test-browser-mobile
 - What you'd change in the generated structure
 - What project types you'd like CodeBound to support
 - What architectural problems you'd want CodeBound to help solve
+- Where AI-generated changes introduce inconsistency or architectural drift in your projects
 
  The project is intentionally early, so feedback can directly influence its direction.
 
