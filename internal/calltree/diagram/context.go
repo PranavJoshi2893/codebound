@@ -1,34 +1,36 @@
-package calltree
+package diagram
 
 import (
 	"fmt"
 	"io"
 	"slices"
 	"strings"
+
+	"github.com/PranavJoshi2893/codebound/internal/calltree/model"
 )
 
 // The hybrid view keeps usage in function boxes. Only real creation sites get
 // separate markers; parameters and context reads never create extra nodes.
 type contextMarker struct {
-	owner           Function
-	operation       ContextOperation
+	owner           model.Function
+	operation       model.ContextOperation
 	cancels         []string
 	parentMayCancel bool
 }
 
-func writeContextDOT(output io.Writer, graph *Graph, functions map[functionID]int) error {
+func writeContextDOT(output io.Writer, graph *model.Graph, functions map[model.FunctionID]int) error {
 	var markers []contextMarker
 	byID := make(map[string]int)
-	visited := make(map[functionID]bool)
-	var descriptions []Function
-	addFunction := func(function Function) {
-		if function.Context == nil || visited[function.id()] {
+	visited := make(map[model.FunctionID]bool)
+	var descriptions []model.Function
+	addFunction := func(function model.Function) {
+		if function.Context == nil || visited[function.Identity()] {
 			return
 		}
-		visited[function.id()] = true
+		visited[function.Identity()] = true
 		descriptions = append(descriptions, function)
 		for _, operation := range function.Context.Operations {
-			if !operation.createsContext() {
+			if !operation.CreatesContext() {
 				continue
 			}
 			if len(operation.IDs) == 1 {
@@ -67,7 +69,7 @@ func writeContextDOT(output io.Writer, graph *Graph, functions map[functionID]in
 	if _, err := fmt.Fprintln(output, "  graph [nodesep=0.6, ranksep=0.9, pad=0.3];"); err != nil {
 		return err
 	}
-	operations := make([]*ContextOperation, len(markers))
+	operations := make([]*model.ContextOperation, len(markers))
 	for index := range markers {
 		operations[index] = &markers[index].operation
 	}
@@ -78,7 +80,7 @@ func writeContextDOT(output io.Writer, graph *Graph, functions map[functionID]in
 			return err
 		}
 		id := contextIDsLabel(marker.operation.IDs, marker.operation.Unresolved)
-		if _, err := fmt.Fprintf(output, "  n%d -> c%d [style=dashed, weight=0, color=\"#2563eb\", label=%q, fontsize=11];\n", functions[marker.owner.id()], index, "starts "+id+contextScopeLabel(marker.operation)); err != nil {
+		if _, err := fmt.Fprintf(output, "  n%d -> c%d [style=dashed, weight=0, color=\"#2563eb\", label=%q, fontsize=11];\n", functions[marker.owner.Identity()], index, "starts "+id+contextScopeLabel(marker.operation)); err != nil {
 			return err
 		}
 		for _, parent := range marker.operation.ParentIDs {

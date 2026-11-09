@@ -471,14 +471,19 @@ example-api/
 
 ### Code organization
 
-- `cmd/`: Cobra commands and orchestration; running without arguments opens the wizard.
+- `main.go`: process signals and exit status; one cancellation context covers every command.
+- `cmd/`: independent Cobra command constructors, argument parsing, terminal detection, and adapter composition; no global command state.
+- `internal/app/`: shared application workflows and narrow prompt, analysis, browser, and generation boundaries; no Cobra or Charm dependency.
 - `internal/tui/`: form, presentation, and answer collection only; no filesystem creation or Cobra dependency.
 - `internal/project/`: shared options, validation, and project-creation entry point; no Cobra or Charm dependency.
-- `internal/scaffold/`: existing generators and embedded templates, reused by both entry paths.
-- `internal/calltree/`: package loading, SSA/VTA analysis, graph data, architecture checks, and DOT encoding; no Cobra, HTTP, or Graphviz process dependency.
+- `internal/scaffold/`: generators and embedded blueprints; all templates compile into ordered plans before destination changes. Plans use confined, exclusive file creation, and external setup tools share a cancellable runner with bounded diagnostics.
+- `internal/calltree/`: package loading, SSA/VTA analysis, context propagation, and architecture checks; no presentation, HTTP, or Graphviz process dependency.
+- `internal/calltree/model/`: shared graph evidence and declaration identity, independent of the Go analysis engine.
+- `internal/calltree/diagram/`: DOT exports, browser presentation indexes, labels, and lifecycle presentation; depends on evidence, not the analyzer.
 - `internal/calltree/viewer/`: Graphviz SVG rendering and a local HTTP viewer with context-driven shutdown; no Cobra dependency.
 - `internal/calltree/viewer/assets/`: embedded HTML/CSS and separate camera, graph-request, and text-explorer controllers; no frontend build pipeline or external assets.
 - `internal/calltree/viewer/testdata/`: browser-only test scripts, not served by the production viewer.
+- `internal/architecture/`: executable import-boundary checks to keep these responsibilities separate.
 
 Run the checks with:
 
@@ -490,8 +495,8 @@ go vet ./...
 The Makefile also provides `make check`, `make test-race`, `make test-browser`,
 `make test-browser-mobile`, `make bench`, and `make deadcode`. The dead-code check
 uses a pinned Go tool and includes tests; it does not automatically delete
-exported APIs or reflective callbacks. Context-flow orchestration, the dependency solver, lifecycle reasoning,
-and presentation live in separate focused files inside `internal/calltree/`.
+exported APIs or reflective callbacks. Context-flow orchestration and the dependency
+solver stay in the analyzer; lifecycle presentation and DOT encoding live in `diagram/`.
 
 When Graphviz JSON output is available, tests also check rendered context-label
 positions for overlapping text.

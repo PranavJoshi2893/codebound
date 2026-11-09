@@ -15,7 +15,10 @@ func TestModuleCommandPropagatesGenerationFailure(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "internal", "users"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := moduleCmd.RunE(moduleCmd, []string{"users"}); err == nil {
+	moduleCmd := newModuleCommand()
+	moduleCmd.SetArgs([]string{"users"})
+	moduleCmd.SilenceErrors = true
+	if err := moduleCmd.Execute(); err == nil {
 		t.Fatal("module command swallowed the generation error")
 	}
 }

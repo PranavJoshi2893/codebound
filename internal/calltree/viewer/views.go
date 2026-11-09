@@ -4,13 +4,13 @@ import (
 	"container/list"
 	"context"
 
-	"github.com/PranavJoshi2893/codebound/internal/calltree"
+	"github.com/PranavJoshi2893/codebound/internal/calltree/diagram"
 )
 
 const maxCachedViews = 8
 
 type cachedView struct {
-	options calltree.BrowserOptions
+	options diagram.BrowserOptions
 	svg     []byte
 }
 
@@ -19,18 +19,18 @@ type cachedView struct {
 // the cache; it is released BEFORE writing to a potentially slow HTTP client.
 type viewCache struct {
 	slot   chan struct{}
-	items  map[calltree.BrowserOptions]*list.Element
+	items  map[diagram.BrowserOptions]*list.Element
 	recent list.List
 	bytes  int
 	limit  int
-	render func(context.Context, calltree.BrowserOptions) ([]byte, error)
+	render func(context.Context, diagram.BrowserOptions) ([]byte, error)
 }
 
-func newViewCache(render func(context.Context, calltree.BrowserOptions) ([]byte, error)) *viewCache {
-	return &viewCache{slot: make(chan struct{}, 1), items: make(map[calltree.BrowserOptions]*list.Element), limit: maxSVGBytes, render: render}
+func newViewCache(render func(context.Context, diagram.BrowserOptions) ([]byte, error)) *viewCache {
+	return &viewCache{slot: make(chan struct{}, 1), items: make(map[diagram.BrowserOptions]*list.Element), limit: maxSVGBytes, render: render}
 }
 
-func (cache *viewCache) image(ctx context.Context, options calltree.BrowserOptions) ([]byte, error) {
+func (cache *viewCache) image(ctx context.Context, options diagram.BrowserOptions) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, renderTimeout)
 	defer cancel()
 	select {

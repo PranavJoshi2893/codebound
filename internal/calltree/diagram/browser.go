@@ -1,4 +1,4 @@
-package calltree
+package diagram
 
 import (
 	"bufio"
@@ -7,6 +7,8 @@ import (
 	"path"
 	"sort"
 	"strconv"
+
+	"github.com/PranavJoshi2893/codebound/internal/calltree/model"
 )
 
 // BrowserOptions controls presentation only; exports and analysis stay intact.
@@ -45,7 +47,7 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 		}
 		sort.Ints(visible)
 		if options.Contexts {
-			filtered = &Graph{Root: index.Functions[options.Focus], Calls: make([]Call, len(calls))}
+			filtered = &model.Graph{Root: index.Functions[options.Focus], Calls: make([]model.Call, len(calls))}
 			for i, id := range calls {
 				filtered.Calls[i] = *index.Calls[id].Call
 			}
@@ -178,14 +180,14 @@ func (index *IndexedGraph) WriteBrowserDOT(writer io.Writer, options BrowserOpti
 		}
 	}
 	if options.Contexts {
-		ids := make(map[functionID]int, nodeCount)
+		ids := make(map[model.FunctionID]int, nodeCount)
 		if options.Focus >= 0 {
 			for _, id := range visible {
-				ids[index.Functions[id].id()] = id
+				ids[index.Functions[id].Identity()] = id
 			}
 		} else {
 			for id, function := range index.Functions {
-				ids[function.id()] = id
+				ids[function.Identity()] = id
 			}
 		}
 		if err := writeContextDOT(output, filtered, ids); err != nil {

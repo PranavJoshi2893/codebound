@@ -1,9 +1,11 @@
-package calltree
+package diagram
+
+import "github.com/PranavJoshi2893/codebound/internal/calltree/model"
 
 // Compute inherited cancellation once for all creation sites. Only WithValue
 // depends entirely on its parents; other cancellable constructors have their
 // own cancellation source. Detached contexts never inherit cancellation.
-func contextParentCancellation(operations []*ContextOperation, byID map[string]int) []bool {
+func contextParentCancellation(operations []*model.ContextOperation, byID map[string]int) []bool {
 	canCancel := make([]bool, len(operations))
 	dependents := make([][]int, len(operations))
 	var pending []int

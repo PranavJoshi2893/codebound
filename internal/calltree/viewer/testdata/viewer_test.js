@@ -14,12 +14,12 @@
     check(Math.abs(actual - expected) < 0.01, `${message}: ${actual} != ${expected}`);
   }
 
-  async function waitFor(predicate) {
+  async function waitFor(predicate, message = "Timed out waiting for viewer state") {
     for (let attempt = 0; attempt < 400; attempt++) {
       if (predicate()) return;
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    throw new Error("Timed out waiting for viewer state");
+    throw new Error(message);
   }
 
   const viewport = document.getElementById("viewport");
@@ -146,8 +146,17 @@
     const beforeResize = view();
     const oldWidth = viewport.clientWidth;
     const oldHeight = viewport.clientHeight;
+    const centerX = (oldWidth / 2 - beforeResize.x) / beforeResize.scale;
+    const centerY = (oldHeight / 2 - beforeResize.y) / beforeResize.scale;
     viewport.style.width = "640px";
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    // ResizeObserver delivery is asynchronous and is not guaranteed to finish
+    // within a fixed number of animation frames in headless browsers. Wait for
+    // the observable camera result; broken resize handling still times out.
+    await waitFor(() => {
+      const current = view();
+      return Math.abs((viewport.clientWidth / 2 - current.x) / current.scale - centerX) < 0.01
+        && Math.abs((viewport.clientHeight / 2 - current.y) / current.scale - centerY) < 0.01;
+    }, "Resize must preserve the graph point at the viewport center");
     const resized = view();
     near(resized.scale, beforeResize.scale, "Resize must preserve user zoom rather than jumping to a new fit");
     near((viewport.clientWidth / 2 - resized.x) / resized.scale, (oldWidth / 2 - beforeResize.x) / beforeResize.scale, "Resize must preserve the graph point at the horizontal center");

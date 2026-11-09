@@ -10,13 +10,14 @@ import (
 	"strings"
 
 	"charm.land/huh/v2"
+	"github.com/PranavJoshi2893/codebound/internal/app"
 )
 
-type Action string
+type Action = app.Action
 
 const (
-	CreateProject Action = "create"
-	ViewCalltree  Action = "calltree"
+	CreateProject = app.CreateProject
+	ViewCalltree  = app.ViewCalltree
 )
 
 func ChooseAction(ctx context.Context, input io.Reader, output io.Writer) (Action, error) {

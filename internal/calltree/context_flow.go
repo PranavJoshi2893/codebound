@@ -62,10 +62,10 @@ func newContextFlow(descriptions map[*ssa.Function]analyzedFunction, order []*ss
 		}
 		flow.registerFunction(function, info.contexts)
 		for _, operation := range info.contexts.info.Operations {
-			if !operation.createsContext() {
+			if !operation.CreatesContext() {
 				continue
 			}
-			key := contextSourceID{owner: info.description.id(), origin: operation.Context}
+			key := contextSourceID{owner: info.description.Identity(), origin: operation.Context}
 			if _, exists := flow.sources[key]; !exists {
 				flow.sources[key] = fmt.Sprintf("C%d", len(flow.sources)+1)
 			}

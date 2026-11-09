@@ -1,4 +1,4 @@
-package calltree
+package diagram
 
 import (
 	"bytes"
@@ -72,7 +72,7 @@ func TestHybridViewQuotesLabels(t *testing.T) {
 
 func TestHybridViewPropagatesWriterErrors(t *testing.T) {
 	root := Function{Name: "Run", Context: &ContextInfo{Parameters: []string{"ctx"}}}
-	if err := writeContextDOT(failingWriter{}, &Graph{Root: root}, map[functionID]int{root.id(): 0}); err == nil {
+	if err := writeContextDOT(failingWriter{}, &Graph{Root: root}, map[functionID]int{root.Identity(): 0}); err == nil {
 		t.Fatal("context rendering write errors must be returned")
 	}
 }

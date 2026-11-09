@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/PranavJoshi2893/codebound/internal/calltree/diagram"
 )
 
 func BenchmarkWriteDOT(b *testing.B) {
@@ -21,7 +23,7 @@ func BenchmarkWriteDOT(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := WriteDOT(io.Discard, graph); err != nil {
+		if err := diagram.WriteDOT(io.Discard, graph); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -45,7 +47,7 @@ func benchmarkBrowserDOT(b *testing.B, reuse bool) {
 		graph.Calls[index] = Call{Caller: previous, Callee: next}
 		previous = next
 	}
-	indexed := IndexGraph(graph)
+	indexed := diagram.IndexGraph(graph)
 	for _, test := range []struct {
 		name  string
 		focus int
@@ -55,9 +57,9 @@ func benchmarkBrowserDOT(b *testing.B, reuse bool) {
 			for b.Loop() {
 				var err error
 				if reuse {
-					err = indexed.WriteBrowserDOT(io.Discard, BrowserOptions{Focus: test.focus})
+					err = indexed.WriteBrowserDOT(io.Discard, diagram.BrowserOptions{Focus: test.focus})
 				} else {
-					err = IndexGraph(graph).WriteBrowserDOT(io.Discard, BrowserOptions{Focus: test.focus})
+					err = diagram.IndexGraph(graph).WriteBrowserDOT(io.Discard, diagram.BrowserOptions{Focus: test.focus})
 				}
 				if err != nil {
 					b.Fatal(err)

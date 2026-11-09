@@ -2,6 +2,7 @@
 package project
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"unicode"
@@ -61,8 +62,15 @@ func (o Options) Validate() error {
 }
 
 func Create(options Options) error {
+	return CreateContext(context.Background(), options)
+}
+
+func CreateContext(ctx context.Context, options Options) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := options.Validate(); err != nil {
 		return err
 	}
-	return create.InitializeProject(options.RootDir, options.Mod)
+	return create.InitializeProjectContext(ctx, options.RootDir, options.Mod)
 }

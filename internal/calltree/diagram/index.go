@@ -1,18 +1,20 @@
-package calltree
+package diagram
+
+import "github.com/PranavJoshi2893/codebound/internal/calltree/model"
 
 // IndexedCall references immutable analysis evidence without copying its two
 // function descriptions. Indices are stable in root-first discovery order.
 type IndexedCall struct {
 	From, To int
-	Call     *Call
+	Call     *model.Call
 }
 
 // IndexedGraph is a reusable presentation index. Build once after analysis and
 // do not mutate its source graph while it is in use.
 type IndexedGraph struct {
-	Functions []Function
+	Functions []model.Function
 	Calls     []IndexedCall
-	graph     *Graph
+	graph     *model.Graph
 	offsets   []int
 	incident  []int
 	relations []int
@@ -20,18 +22,18 @@ type IndexedGraph struct {
 
 // IndexGraph builds a root-first identity index and compact incident-call lists.
 // Reuse it for presentation queries instead of rebuilding it per selected node.
-func IndexGraph(graph *Graph) *IndexedGraph {
+func IndexGraph(graph *model.Graph) *IndexedGraph {
 	index := &IndexedGraph{graph: graph}
 	if graph == nil {
 		return index
 	}
-	ids := make(map[functionID]int)
-	add := func(function Function) int {
-		if id, exists := ids[function.id()]; exists {
+	ids := make(map[model.FunctionID]int)
+	add := func(function model.Function) int {
+		if id, exists := ids[function.Identity()]; exists {
 			return id
 		}
 		id := len(index.Functions)
-		ids[function.id()] = id
+		ids[function.Identity()] = id
 		index.Functions = append(index.Functions, function)
 		return id
 	}

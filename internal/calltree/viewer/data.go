@@ -1,24 +1,27 @@
 package viewer
 
-import "github.com/PranavJoshi2893/codebound/internal/calltree"
+import (
+	"github.com/PranavJoshi2893/codebound/internal/calltree/diagram"
+	"github.com/PranavJoshi2893/codebound/internal/calltree/model"
+)
 
 // Send each function's details once, even when it has many callers.
 type graphData struct {
-	Functions []calltree.Function `json:"functions"`
-	Calls     []callData          `json:"calls"`
+	Functions []model.Function `json:"functions"`
+	Calls     []callData       `json:"calls"`
 }
 
 type callData struct {
-	From             int                       `json:"from"`
-	To               int                       `json:"to"`
-	ThroughInterface bool                      `json:"through_interface,omitempty"`
-	Violation        string                    `json:"violation,omitempty"`
-	Contexts         []calltree.ContextBinding `json:"contexts,omitempty"`
-	Execution        string                    `json:"execution,omitempty"`
+	From             int                    `json:"from"`
+	To               int                    `json:"to"`
+	ThroughInterface bool                   `json:"through_interface,omitempty"`
+	Violation        string                 `json:"violation,omitempty"`
+	Contexts         []model.ContextBinding `json:"contexts,omitempty"`
+	Execution        string                 `json:"execution,omitempty"`
 }
 
-func describeGraph(index *calltree.IndexedGraph) graphData {
-	data := graphData{Functions: []calltree.Function{}, Calls: []callData{}}
+func describeGraph(index *diagram.IndexedGraph) graphData {
+	data := graphData{Functions: []model.Function{}, Calls: []callData{}}
 	if len(index.Functions) == 0 {
 		return data
 	}

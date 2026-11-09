@@ -17,7 +17,7 @@ func (a *Analysis) analyzeFunction(function *ssa.Function) analyzedFunction {
 	description := a.describeFunction(function)
 	contexts := a.inspectContexts(function)
 	if contexts != nil {
-		contexts.owner = description.id()
+		contexts.owner = description.Identity()
 		description.Context = &contexts.info
 	}
 	return analyzedFunction{description: description, contexts: contexts}

@@ -1,4 +1,4 @@
-package calltree
+package diagram
 
 import (
 	"context"

@@ -1,10 +1,14 @@
-package calltree
+// Package diagram encodes analysis evidence as DOT without loading Go source or
+// invoking Graphviz. Browser presentation does not change the exported evidence.
+package diagram
 
 import (
 	"bufio"
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/PranavJoshi2893/codebound/internal/calltree/model"
 )
 
 type dotCallID struct {
@@ -16,14 +20,14 @@ type dotCallID struct {
 
 // WriteDOT streams nodes and call edges, using identity indexes to combine
 // repeated relationships. The analysis graph and its JSON findings stay intact.
-func WriteDOT(writer io.Writer, graph *Graph) error {
+func WriteDOT(writer io.Writer, graph *model.Graph) error {
 	output := bufio.NewWriter(writer)
 	if _, err := output.WriteString("digraph CallTree {\n  rankdir=TB;\n  splines=polyline;\n  node [shape=box];\n"); err != nil {
 		return err
 	}
-	ids := make(map[functionID]int)
-	addNode := func(function Function) error {
-		key := function.id()
+	ids := make(map[model.FunctionID]int)
+	addNode := func(function model.Function) error {
+		key := function.Identity()
 		if _, exists := ids[key]; exists {
 			return nil
 		}
@@ -46,7 +50,7 @@ func WriteDOT(writer io.Writer, graph *Graph) error {
 	writtenCalls := make(map[dotCallID]bool)
 	for _, call := range graph.Calls {
 		label := contextCallLabel(call)
-		from, to := ids[call.Caller.id()], ids[call.Callee.id()]
+		from, to := ids[call.Caller.Identity()], ids[call.Callee.Identity()]
 		key := dotCallID{from: from, to: to, throughInterface: call.ThroughInterface, violation: call.Violation, contextLabel: label}
 		if writtenCalls[key] {
 			continue
@@ -71,7 +75,7 @@ func WriteDOT(writer io.Writer, graph *Graph) error {
 	return output.Flush()
 }
 
-func functionLabel(function Function) string {
+func functionLabel(function model.Function) string {
 	label := fmt.Sprintf("%s\n%s\n%s:%d", function.Name, function.Package, function.File, function.Line)
 	if function.Layer != "" {
 		label += "\n" + function.Layer

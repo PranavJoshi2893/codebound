@@ -1,6 +1,7 @@
 package module
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -28,7 +29,18 @@ func ValidateName(name string) error {
 }
 
 func CreateAPIModule(moduleName string) error {
+	return CreateAPIModuleContext(context.Background(), moduleName)
+}
+
+func CreateAPIModuleContext(ctx context.Context, moduleName string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := ValidateName(moduleName); err != nil {
+		return err
+	}
+	plan, err := modulePlan(moduleName)
+	if err != nil {
 		return err
 	}
 	projectDir, err := findProjectRoot()
@@ -54,7 +66,7 @@ func CreateAPIModule(moduleName string) error {
 		return err
 	}
 	defer moduleRoot.Close()
-	return createModuleFiles(moduleRoot, moduleName)
+	return plan.Apply(ctx, moduleRoot)
 }
 
 func findProjectRoot() (string, error) {
@@ -64,8 +76,15 @@ func findProjectRoot() (string, error) {
 	}
 
 	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+		info, err := os.Stat(filepath.Join(dir, "go.mod"))
+		if err == nil {
+			if info.IsDir() {
+				return "", fmt.Errorf("go.mod is a directory in %s", dir)
+			}
 			return dir, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("find go.mod: %w", err)
 		}
 
 		parent := filepath.Dir(dir)
@@ -83,26 +102,9 @@ type TemplateData struct {
 	Name string
 }
 
-func createModuleFiles(root *os.Root, moduleName string) error {
-	files := map[string]string{
-		"templates/handler.go.tmpl": "handler.go",
-		"templates/service.go.tmpl": "service.go",
-	}
-
-	data := TemplateData{
-		Name: moduleName,
-	}
-
-	for src, dest := range files {
-		content, err := templateFiles.ReadFile(src)
-		if err != nil {
-			return fmt.Errorf("failed to read embedded template %s: %w", src, err)
-		}
-
-		if err := templatefile.Write(root, dest, string(content), data, 0644); err != nil {
-			return err
-		}
-	}
-
-	return nil
+func modulePlan(name string) (*templatefile.Plan, error) {
+	return (templatefile.Blueprint{Templates: []templatefile.Template{
+		{Source: "templates/handler.go.tmpl", Destination: "handler.go", Mode: 0644},
+		{Source: "templates/service.go.tmpl", Destination: "service.go", Mode: 0644},
+	}}).Compile(templateFiles, TemplateData{Name: name})
 }
